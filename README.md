@@ -1,5 +1,7 @@
 # Bed Manager
 
+**Live demo: https://bed-manager-system.vercel.app** (use the one-click demo accounts on the login page)
+
 Real-time hospital bed management. Bed Manager gives every role on the hospital floor a live view of bed availability, and connects the people who need a bed (ER staff) with the people who manage them (ward managers and staff).
 
 ![Manager dashboard](docs/screenshots/manager.jpg)
