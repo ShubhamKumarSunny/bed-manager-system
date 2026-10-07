@@ -7,7 +7,7 @@
   "functions": {
     "api/index.js": {
       "maxDuration": 30,
-      "includeFiles": "backend/node_modules/pdfkit/js/data/**"
+      "includeFiles": "backend/node_modules/pdfkit/js/**"
     }
   },
   "rewrites": [
