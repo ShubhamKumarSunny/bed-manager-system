@@ -39,28 +39,6 @@ const ExecutiveSummary = () => {
   const availableBeds = bedsList.filter(bed => bed.status === 'available').length || analyticsData?.available || 0;
   const occupancyRate = totalBeds > 0 ? Math.round((occupiedBeds / totalBeds) * 100) : 0;
 
-  // Calculate ward-specific alerts
-  const wardOccupancy = bedsList.reduce((acc, bed) => {
-    if (!acc[bed.ward]) {
-      acc[bed.ward] = { total: 0, occupied: 0 };
-    }
-    acc[bed.ward].total++;
-    if (bed.status === 'occupied') acc[bed.ward].occupied++;
-    return acc;
-  }, {});
-
-  const alerts = Object.entries(wardOccupancy)
-    .map(([ward, data]) => {
-      const rate = data.total > 0 ? (data.occupied / data.total) * 100 : 0;
-      if (rate >= 95) {
-        return { message: `${ward} capacity at ${Math.round(rate)}%`, severity: 'high' };
-      } else if (rate >= 85) {
-        return { message: `${ward} nearing full capacity`, severity: 'medium' };
-      }
-      return null;
-    })
-    .filter(Boolean)
-    .slice(0, 3);
 
   // Get week-over-week changes from analytics data
   const weekOverWeek = analyticsData?.weekOverWeek || {};

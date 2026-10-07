@@ -1,6 +1,7 @@
 // backend/middleware/authMiddleware.js
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { getJwtSecret } = require('../config/env');
 
 /**
  * @desc    Protect routes - Verify JWT token
@@ -29,15 +30,16 @@ exports.protect = async (req, res, next) => {
 
     try {
       // Verify token
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+      const decoded = jwt.verify(token, getJwtSecret());
 
       // Fetch user from database
       const user = await User.findById(decoded.id).select('-password');
 
       if (!user) {
-        return res.status(404).json({
+        // Account was deleted after the token was issued
+        return res.status(401).json({
           success: false,
-          message: 'User not found'
+          message: 'Not authorized to access this route - Account no longer exists'
         });
       }
 

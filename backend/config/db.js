@@ -1,57 +1,44 @@
 // backend/config/db.js
-// Task 2: MongoDB connection with mongoose and detailed logging
+// MongoDB connection with mongoose. The connection promise is cached so the
+// same code works for a long-running server and for serverless functions,
+// where the module is re-used across warm invocations.
 
 const mongoose = require('mongoose');
 
+let connectionPromise = null;
+
+mongoose.connection.on('error', (err) => {
+  console.error('❌ MongoDB runtime error:', err.message || err);
+});
+
+mongoose.connection.on('disconnected', () => {
+  console.warn('⚠️  MongoDB disconnected');
+  connectionPromise = null;
+});
+
 async function connectDB() {
-  const uri = process.env.MONGO_URI || '';
-  
+  if (mongoose.connection.readyState === 1) return mongoose;
+  if (connectionPromise) return connectionPromise;
+
+  const uri = process.env.MONGO_URI || process.env.MONGODB_URI || '';
+
   if (!uri) {
-    console.log('⚠️  No MONGO_URI found in environment variables');
-    console.log('⚠️  Skipping database connection...');
-    return Promise.resolve();
+    throw new Error('MONGO_URI environment variable is not set');
   }
 
-  try {
-    console.log('🔄 Attempting to connect to MongoDB...');
-    
-    await mongoose.connect(uri);
-    
-    console.log('✅ MongoDB connected successfully!');
-    console.log(`📊 Database: ${mongoose.connection.name}`);
-    console.log(`🌐 Host: ${mongoose.connection.host}`);
-    console.log(`🔌 Port: ${mongoose.connection.port}`);
-
-    // Connection event listeners
-    mongoose.connection.on('connected', () => {
-      console.log('✅ Mongoose connected to MongoDB');
+  connectionPromise = mongoose
+    .connect(uri, { serverSelectionTimeoutMS: 10000 })
+    .then(() => {
+      console.log(`✅ MongoDB connected (${mongoose.connection.name})`);
+      return mongoose;
+    })
+    .catch((err) => {
+      connectionPromise = null;
+      console.error('❌ MongoDB connection failed:', err.message || err);
+      throw err;
     });
 
-    mongoose.connection.on('error', (err) => {
-      console.error('❌ MongoDB runtime error:', err.message || err);
-    });
-
-    mongoose.connection.on('disconnected', () => {
-      console.warn('⚠️  MongoDB disconnected');
-    });
-
-    // Graceful shutdown
-    process.on('SIGINT', async () => {
-      await mongoose.connection.close();
-      console.log('🛑 MongoDB connection closed due to app termination');
-      process.exit(0);
-    });
-
-    return mongoose;
-  } catch (err) {
-    console.error('❌ MongoDB connection failed!');
-    console.error('❌ Error:', err.message || err);
-    console.error('💡 Please check:');
-    console.error('   1. MongoDB is running');
-    console.error('   2. MONGO_URI in .env is correct');
-    console.error('   3. Network connectivity');
-    throw err;
-  }
+  return connectionPromise;
 }
 
 module.exports = connectDB;

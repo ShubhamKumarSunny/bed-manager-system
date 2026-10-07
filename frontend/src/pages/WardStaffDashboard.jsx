@@ -17,7 +17,7 @@ const WardStaffDashboard = () => {
   // Task 4.3: Add online status tracking for offline capability
   const [online, setOnline] = useState(isOnline());
   const [backendConnected, setBackendConnected] = useState(true);
-  const [lastUpdateTime, setLastUpdateTime] = useState(null);
+  const [, setLastUpdateTime] = useState(null);
 
   // Check backend connectivity
   const checkBackendConnection = useCallback(async () => {
@@ -33,7 +33,7 @@ const WardStaffDashboard = () => {
   // Periodic backend health check
   useEffect(() => {
     checkBackendConnection();
-    const interval = setInterval(checkBackendConnection, 5000); // Check every 5 seconds
+    const interval = setInterval(checkBackendConnection, 30000); // Check every 5 seconds
     return () => clearInterval(interval);
   }, [checkBackendConnection]);
 

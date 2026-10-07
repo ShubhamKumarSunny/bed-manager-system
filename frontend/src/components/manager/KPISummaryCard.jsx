@@ -47,7 +47,7 @@ const KPISummaryCard = ({ ward }) => {
 
   if (status === 'loading') {
     return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {[...Array(4)].map((_, i) => (
           <div key={i} className="bg-neutral-900 border border-neutral-700 rounded-lg p-6 animate-pulse">
             <div className="h-12 w-12 bg-zinc-800 rounded-lg mb-4"></div>
@@ -60,7 +60,7 @@ const KPISummaryCard = ({ ward }) => {
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
       {kpiData.map((kpi, index) => {
         const Icon = kpi.icon;
         return (

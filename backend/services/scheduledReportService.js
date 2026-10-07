@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const reportService = require('./reportService');
 const emailService = require('./emailService');
+const { isServerless } = require('../config/env');
 
 class ScheduledReportService {
   constructor() {
@@ -65,6 +66,9 @@ class ScheduledReportService {
   }
 
   startSchedule(schedule) {
+    // Cron needs a long-lived process; serverless functions are frozen between requests
+    if (isServerless) return;
+
     if (this.jobs.has(schedule.id)) {
       console.log(`⚠️  Schedule ${schedule.id} already running`);
       return;
@@ -109,7 +113,7 @@ class ScheduledReportService {
       }
 
       // Send emails if recipients are configured
-      if (schedule.config.recipients && schedule.config.recipients.length > 0) {
+      if (schedule.config.recipients && schedule.config.recipients.length > 0 && emailService.isConfigured()) {
         await emailService.sendScheduledReport(
           schedule.config.recipients,
           reportBuffer,

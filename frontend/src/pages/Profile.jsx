@@ -7,11 +7,10 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { User, Mail, Phone, MapPin, Calendar, Briefcase, FileText, Camera, Edit2, Save, X, Shield, ArrowLeft } from 'lucide-react';
-import { updateUserProfile } from '../features/auth/authSlice';
-import axios from 'axios';
+import { updateUserProfile, logout } from '../features/auth/authSlice';
+import api from '../services/api';
+import { assetUrl } from '../services/config';
 import Toast from '../components/ui/Toast';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
 
 const Profile = () => {
   const navigate = useNavigate();
@@ -41,25 +40,9 @@ const Profile = () => {
 
   const fetchProfile = async () => {
     try {
-      console.log('Fetching profile...');
-      const token = localStorage.getItem('authToken') || localStorage.getItem('token');
-      console.log('Token found:', !!token);
-      
-      if (!token) {
-        setError('No authentication token found');
-        setProfileData({}); // Set empty object to stop loading
-        return;
-      }
-      
-      console.log('Making request to:', `${API_URL}/api/profile`);
-      const response = await axios.get(`${API_URL}/api/profile`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      console.log('Profile response:', response.data);
-      
+      const response = await api.get('/profile');
+
       if (response.data.success && response.data.data) {
-        console.log('Setting profile data:', response.data.data);
         setProfileData(response.data.data);
         setFormData({
           name: response.data.data.name || '',
@@ -71,17 +54,14 @@ const Profile = () => {
         });
         
         if (response.data.data.profilePicture) {
-          setImagePreview(`${API_URL}${response.data.data.profilePicture}`);
+          setImagePreview(assetUrl(response.data.data.profilePicture));
         }
       } else {
-        console.error('Invalid response format:', response.data);
         setError('Invalid response from server');
         setProfileData({}); // Set empty object to stop loading
       }
     } catch (err) {
       console.error('Failed to fetch profile:', err);
-      console.error('Error response:', err.response?.data);
-      console.error('Error status:', err.response?.status);
       setError(err.response?.data?.message || 'Failed to load profile data');
       setProfileData({}); // Set empty object to stop loading
     }
@@ -98,8 +78,8 @@ const Profile = () => {
   const handleImageChange = (e) => {
     const file = e.target.files[0];
     if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        setError('Image size must be less than 5MB');
+      if (file.size > 2 * 1024 * 1024) {
+        setError('Image size must be less than 2MB');
         return;
       }
       
@@ -124,15 +104,6 @@ const Profile = () => {
     setSuccess('');
 
     try {
-      const token = localStorage.getItem('authToken') || localStorage.getItem('token');
-      if (!token) {
-        setError('No authentication token found');
-        setLoading(false);
-        return;
-      }
-      
-      console.log('Submitting profile update:', formData);
-      
       const formDataToSend = new FormData();
       
       // Always send all fields, even if empty
@@ -144,22 +115,15 @@ const Profile = () => {
         formDataToSend.append('profilePicture', imageFile);
       }
 
-      console.log('Sending request to:', `${API_URL}/api/profile`);
-      
-      const response = await axios.put(`${API_URL}/api/profile`, formDataToSend, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'multipart/form-data'
-        }
+      const response = await api.put('/profile', formDataToSend, {
+        headers: { 'Content-Type': 'multipart/form-data' }
       });
-
-      console.log('Update response:', response.data);
 
       if (response.data.success && response.data.data) {
         setProfileData(response.data.data);
         
         // Update Redux store with new user data (including profile picture)
-        dispatch(updateUserProfile(response.data.data));
+        dispatch(updateUserProfile({ ...user, ...response.data.data, id: response.data.data._id }));
         
         // Update form data with the response to ensure UI reflects saved data
         setFormData({
@@ -172,7 +136,7 @@ const Profile = () => {
         });
         
         if (response.data.data.profilePicture) {
-          setImagePreview(`${API_URL}${response.data.data.profilePicture}`);
+          setImagePreview(assetUrl(response.data.data.profilePicture));
         }
         
         setSuccess('Profile updated successfully!');
@@ -183,7 +147,6 @@ const Profile = () => {
       }
     } catch (err) {
       console.error('Failed to update profile:', err);
-      console.error('Error response:', err.response?.data);
       setError(err.response?.data?.message || 'Failed to update profile');
     } finally {
       setLoading(false);
@@ -208,7 +171,7 @@ const Profile = () => {
       });
       
       if (profileData.profilePicture) {
-        setImagePreview(`${API_URL}${profileData.profilePicture}`);
+        setImagePreview(assetUrl(profileData.profilePicture));
       }
     }
   };
@@ -219,16 +182,11 @@ const Profile = () => {
     }
 
     try {
-      const token = localStorage.getItem('authToken') || localStorage.getItem('token');
-      if (!token) {
-        setError('No authentication token found');
-        return;
+      const response = await api.delete('/profile/picture');
+      if (response.data?.data) {
+        dispatch(updateUserProfile({ ...user, ...response.data.data, id: response.data.data._id }));
       }
-      
-      await axios.delete(`${API_URL}/api/profile/picture`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
+
       setImagePreview(null);
       setImageFile(null);
       setSuccess('Profile picture deleted successfully');
@@ -237,7 +195,6 @@ const Profile = () => {
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
       console.error('Failed to delete picture:', err);
-      console.error('Error response:', err.response?.data);
       setError(err.response?.data?.message || 'Failed to delete profile picture');
     }
   };
@@ -560,8 +517,8 @@ const Profile = () => {
                       className="w-full p-2 border border-neutral-300 dark:border-neutral-700 rounded-md focus:outline-none focus:ring-2 focus:ring-neutral-500 dark:focus:ring-neutral-500 text-neutral-900 dark:text-neutral-100 dark:bg-neutral-800"
                     />
                   ) : (
-                    <div className="p-4 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg border border-indigo-200 min-h-[100px]">
-                      <p className="text-gray-900 font-medium whitespace-pre-wrap">{profileData?.bio || 'No bio provided'}</p>
+                    <div className="p-4 bg-neutral-800 rounded-lg border border-neutral-700 min-h-[100px] text-left">
+                      <p className={`whitespace-pre-wrap ${profileData?.bio ? 'text-neutral-100' : 'text-neutral-500'}`}>{profileData?.bio || 'No bio provided'}</p>
                     </div>
                   )}
                   {isEditing && (
@@ -670,13 +627,11 @@ const Profile = () => {
               <Button
                 onClick={async () => {
                   try {
-                    const api = (await import('@/services/api')).default;
                     await api.delete('/auth/account');
-                    
-                    // Close modal and clear storage immediately
+
+                    // Close modal and clear the session immediately
                     setShowDeleteModal(false);
-                    localStorage.removeItem('authToken');
-                    localStorage.removeItem('user');
+                    dispatch(logout());
                     
                     // Navigate to login immediately
                     navigate('/login', { 

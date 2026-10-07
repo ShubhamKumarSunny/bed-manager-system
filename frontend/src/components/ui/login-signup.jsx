@@ -23,25 +23,40 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Eye,
   EyeOff,
-  Github,
   Lock,
   Mail,
-  ArrowRight,
-  Chrome,
   X,
+  BarChart3,
+  Briefcase,
+  BedDouble,
+  Siren,
 } from "lucide-react";
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select';
 import { HeroHighlight } from "@/components/ui/hero-highlight";
 import Toast from '@/components/ui/Toast';
 
+const DEMO_PASSWORD = 'demo1234';
+const DEMO_ACCOUNTS = [
+  { label: 'Hospital Admin', description: 'Analytics, forecasting, reports', email: 'admin@hospital.com', icon: BarChart3, color: 'text-blue-400' },
+  { label: 'ICU Manager', description: 'Beds, requests, discharges', email: 'manager.icu@hospital.com', icon: Briefcase, color: 'text-purple-400' },
+  { label: 'Ward Staff', description: 'Bed status and cleaning queue', email: 'staff.general@hospital.com', icon: BedDouble, color: 'text-green-400' },
+  { label: 'ER Staff', description: 'Availability and bed requests', email: 'er@hospital.com', icon: Siren, color: 'text-red-400' },
+];
+
+const dashboardPathForRole = (role) => ({
+  hospital_admin: '/admin/dashboard',
+  manager: '/manager/dashboard',
+  ward_staff: '/staff/dashboard',
+  er_staff: '/er/dashboard',
+}[role] || '/dashboard');
+
 export default function LoginCardSection() {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const location = useLocation();
-  const { status, error } = useSelector((state) => state.auth);
+  const { status } = useSelector((state) => state.auth);
   const [toast, setToast] = useState(null);
 
-  const [showPassword, setShowPassword] = useState(false);
   const [showLoginPw, setShowLoginPw] = useState(false);
   const [showSignupPw, setShowSignupPw] = useState(false);
   const [activeTab, setActiveTab] = useState("login");
@@ -59,6 +74,19 @@ export default function LoginCardSection() {
 
   const [errors, setErrors] = useState({});
   const isSubmitting = status === 'loading';
+  const [demoLoading, setDemoLoading] = useState(null);
+
+  const handleDemoLogin = async (account) => {
+    setErrors({});
+    setDemoLoading(account.email);
+    const resultAction = await dispatch(loginAction({ email: account.email, password: DEMO_PASSWORD }));
+    setDemoLoading(null);
+    if (loginAction.fulfilled.match(resultAction)) {
+      navigate(dashboardPathForRole(resultAction.payload.user.role));
+    } else {
+      setErrors({ loginPassword: resultAction.payload || 'Demo login failed' });
+    }
+  };
 
   // Show notification from navigation state (e.g., after account deletion)
   useEffect(() => {
@@ -184,29 +212,44 @@ export default function LoginCardSection() {
                         const resultAction = await dispatch(loginAction(payload));
                         if (loginAction.fulfilled.match(resultAction)) {
                           // Success - navigate to role-specific dashboard
-                          const userRole = resultAction.payload.user.role;
-                          if (userRole === 'hospital_admin') {
-                            navigate('/admin/dashboard');
-                          } else if (userRole === 'manager') {
-                            navigate('/manager/dashboard');
-                          } else if (userRole === 'ward_staff') {
-                            navigate('/staff/dashboard');
-                          } else if (userRole === 'er_staff') {
-                            navigate('/er/dashboard');
-                          } else {
-                            navigate('/dashboard');
-                          }
+                          navigate(dashboardPathForRole(resultAction.payload.user.role));
                         } else {
                           // Error - show message
                           setErrors({ loginPassword: resultAction.payload || 'Login failed' });
                         }
-                      } catch (err) {
+                      } catch {
                         setErrors({ loginPassword: 'An unexpected error occurred' });
                       }
                     }} className="w-full h-10 rounded-lg bg-zinc-50 text-zinc-900 hover:bg-zinc-200">
                       {isSubmitting ? 'Logging in...' : 'Continue'}
                     </Button>
                     {errors.loginPassword && <p className="text-xs text-red-400 mt-1">{errors.loginPassword}</p>}
+
+                    {/* One-click demo accounts (created by the backend seed script) */}
+                    <div className="pt-2">
+                      <div className="flex items-center gap-3 mb-3">
+                        <Separator className="flex-1 bg-zinc-800" />
+                        <span className="text-[11px] uppercase tracking-widest text-zinc-500">or explore a demo account</span>
+                        <Separator className="flex-1 bg-zinc-800" />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {DEMO_ACCOUNTS.map((account) => (
+                          <button
+                            key={account.email}
+                            type="button"
+                            disabled={isSubmitting}
+                            onClick={() => handleDemoLogin(account)}
+                            className="group rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2.5 text-left transition-colors hover:border-cyan-500/50 hover:bg-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <span className="flex items-center gap-2 text-sm font-medium text-zinc-100">
+                              <account.icon className={`h-4 w-4 ${account.color}`} />
+                              {demoLoading === account.email ? 'Signing in...' : account.label}
+                            </span>
+                            <span className="mt-0.5 block text-xs text-zinc-500">{account.description}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
 
                     {/* <div className="relative">
                       <Separator className="bg-zinc-800" />
@@ -375,23 +418,12 @@ export default function LoginCardSection() {
 
                         if (registerAction.fulfilled.match(resultAction)) {
                           // Success - navigate to role-specific dashboard
-                          const userRole = resultAction.payload.user.role;
-                          if (userRole === 'hospital_admin') {
-                            navigate('/admin/dashboard');
-                          } else if (userRole === 'manager') {
-                            navigate('/manager/dashboard');
-                          } else if (userRole === 'ward_staff') {
-                            navigate('/staff/dashboard');
-                          } else if (userRole === 'er_staff') {
-                            navigate('/er/dashboard');
-                          } else {
-                            navigate('/dashboard');
-                          }
+                          navigate(dashboardPathForRole(resultAction.payload.user.role));
                         } else {
                           // Error - show message
                           setErrors({ signupError: resultAction.payload || 'Registration failed' });
                         }
-                      } catch (err) {
+                      } catch {
                         setErrors({ signupError: 'An unexpected error occurred' });
                       }
                     }} className="w-full h-10 rounded-lg bg-zinc-50 text-zinc-900 hover:bg-zinc-200">

@@ -1,6 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useSelector, useDispatch } from 'react-redux';
-import { fetchBeds } from '@/features/beds/bedsSlice';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useSelector } from 'react-redux';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,304 +10,156 @@ import MLCleaningPredictionCard from './MLCleaningPredictionCard';
 import MLAvailabilityCard from './MLAvailabilityCard';
 
 const ForecastingInsights = () => {
-  const dispatch = useDispatch();
-  const { bedsList, status } = useSelector((state) => state.beds);
+  const { bedsList } = useSelector((state) => state.beds);
   const [forecastPeriod, setForecastPeriod] = useState('7days');
   const [forecastMode, setForecastMode] = useState('ml'); // 'ml' or 'manager'
-  const [forecasts, setForecasts] = useState({});
-  const [recommendations, setRecommendations] = useState([]);
-  const [mlPredictions, setMlPredictions] = useState({
-    discharges: [],
-    cleaningTimes: [],
-    bedAvailability: []
-  });
-  const [managerDischarges, setManagerDischarges] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [forecast, setForecast] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
 
+  // Fetch the forecast for the selected mode and keep it fresh
   useEffect(() => {
-    // Always fetch beds when component mounts to get latest data
-    dispatch(fetchBeds());
-  }, [dispatch]);
+    let cancelled = false;
 
-  // Refresh beds data every 30 seconds to get updated discharge times
-  useEffect(() => {
-    const interval = setInterval(() => {
-      dispatch(fetchBeds());
-    }, 30000); // 30 seconds
-
-    return () => clearInterval(interval);
-  }, [dispatch]);
-
-  // Fetch ML predictions for occupied beds
-  useEffect(() => {
-    const fetchMLPredictions = async () => {
-      if (bedsList.length === 0) return;
-      
-      setIsLoading(true);
+    const fetchForecast = async () => {
       try {
-        const occupiedBeds = bedsList.filter(bed => bed.status === 'occupied');
-        const cleaningBeds = bedsList.filter(bed => bed.status === 'maintenance');
-        
-        // Fetch discharge predictions for occupied beds
-        const dischargePromises = occupiedBeds.slice(0, 10).map(async (bed) => {
-          try {
-            const response = await api.post(`/beds/${bed._id}/predict-discharge`);
-            const prediction = response.data?.data?.prediction;
-            return {
-              bedId: bed._id,
-              bedNumber: bed.bedId || bed.bedNumber, // Use bedId field (e.g., "ICU-01")
-              ward: bed.ward,
-              predicted_hours_until_discharge: prediction?.hours_until_discharge,
-              estimated_discharge_time: prediction?.estimated_discharge_time
-            };
-          } catch (error) {
-            console.error(`Failed to get discharge prediction for bed ${bed.bedId || bed.bedNumber}:`, error);
-            return null;
-          }
+        const response = await api.get('/analytics/occupancy-forecast', {
+          params: { mode: forecastMode === 'ml' ? 'predicted' : 'manager' }
         });
-
-        // Fetch cleaning duration predictions for maintenance beds
-        const cleaningPromises = cleaningBeds.slice(0, 10).map(async (bed) => {
-          try {
-            const response = await api.post(`/beds/${bed._id}/predict-cleaning`, {
-              estimatedDuration: 30
-            });
-            const prediction = response.data?.data?.prediction;
-            return {
-              bedId: bed._id,
-              bedNumber: bed.bedId || bed.bedNumber, // Use bedId field (e.g., "ICU-01")
-              ward: bed.ward,
-              predicted_cleaning_minutes: prediction?.predicted_duration_minutes,
-              predicted_end_time: prediction?.estimated_end_time
-            };
-          } catch (error) {
-            console.error(`Failed to get cleaning prediction for bed ${bed.bedId || bed.bedNumber}:`, error);
-            return null;
-          }
-        });
-
-        const [dischargeResults, cleaningResults] = await Promise.all([
-          Promise.all(dischargePromises),
-          Promise.all(cleaningPromises)
-        ]);
-
-        setMlPredictions({
-          discharges: dischargeResults.filter(r => r !== null),
-          cleaningTimes: cleaningResults.filter(r => r !== null),
-          bedAvailability: []
-        });
-      } catch (error) {
-        console.error('Error fetching ML predictions:', error);
+        if (!cancelled) {
+          setForecast(response.data.data);
+          setError(null);
+        }
+      } catch (err) {
+        if (!cancelled) setError(err.response?.data?.message || 'Failed to load forecast');
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     };
 
-    if (bedsList.length > 0) {
-      fetchMLPredictions();
-    }
-  }, [bedsList]);
+    setIsLoading(true);
+    fetchForecast();
+    const interval = setInterval(fetchForecast, 60000);
 
-  // Fetch manager-assigned discharge times
-  useEffect(() => {
-    const fetchManagerDischarges = async () => {
-      try {
-        console.log('🔍 Checking beds for estimated discharge times:', bedsList.length);
-        
-        const occupiedBeds = bedsList.filter(bed => bed.status === 'occupied');
-        console.log('📊 Occupied beds:', occupiedBeds.length);
-        
-        const bedsWithDischarge = occupiedBeds.filter(bed => bed.estimatedDischargeTime);
-        console.log('⏰ Beds with estimatedDischargeTime:', bedsWithDischarge.length, bedsWithDischarge.map(b => ({
-          bedId: b.bedId,
-          estimatedDischargeTime: b.estimatedDischargeTime
-        })));
-        
-        const discharges = bedsWithDischarge.map(bed => ({
-          bedId: bed._id,
-          bedNumber: bed.bedId || bed.bedNumber,
-          ward: bed.ward,
-          patientName: bed.patientName || bed.occupiedBy?.name || 'N/A',
-          expectedDischargeDate: bed.estimatedDischargeTime,
-          hoursUntilDischarge: bed.estimatedDischargeTime 
-            ? Math.max(0, (new Date(bed.estimatedDischargeTime) - new Date()) / (1000 * 60 * 60))
-            : null
-        }));
-        
-        console.log('✅ Manager discharges parsed:', discharges);
-        setManagerDischarges(discharges.filter(d => d.hoursUntilDischarge !== null));
-      } catch (error) {
-        console.error('Error fetching manager discharge times:', error);
-      }
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
     };
+  }, [forecastMode]);
 
-    if (bedsList.length > 0) {
-      fetchManagerDischarges();
-    }
-  }, [bedsList]);
+  // Predictions come from the ML service when it is deployed, otherwise from
+  // statistical estimates built on the hospital's own history
+  const usesMlService = forecast?.source === 'ml';
+  const predictionLabel = usesMlService ? 'ML Model' : 'Historical Model';
+  const current = forecast?.current;
 
-  useEffect(() => {
-    const generateForecasts = () => {
-      const totalBeds = bedsList.length;
-      const occupiedBeds = bedsList.filter(bed => bed.status === 'occupied').length;
-      const currentOccupancy = totalBeds > 0 ? Math.round((occupiedBeds / totalBeds) * 100) : 0;
+  const mlPredictions = useMemo(() => ({
+    discharges: forecast?.discharges || [],
+    cleaningTimes: forecast?.cleaningTimes || []
+  }), [forecast]);
 
-      // Calculate ward-specific data for recommendations
-      const wardOccupancy = bedsList.reduce((acc, bed) => {
-        if (!acc[bed.ward]) {
-          acc[bed.ward] = { total: 0, occupied: 0 };
-        }
-        acc[bed.ward].total++;
-        if (bed.status === 'occupied') acc[bed.ward].occupied++;
-        return acc;
-      }, {});
+  const managerDischarges = useMemo(
+    () => bedsList
+      .filter((bed) => bed.status === 'occupied' && bed.estimatedDischargeTime)
+      .map((bed) => ({
+        bedId: bed._id,
+        bedNumber: bed.bedId,
+        ward: bed.ward,
+        patientName: bed.patientName || 'N/A',
+        expectedDischargeDate: bed.estimatedDischargeTime,
+        hoursUntilDischarge: Math.max(0, (new Date(bed.estimatedDischargeTime) - new Date()) / (1000 * 60 * 60))
+      }))
+      .sort((a, b) => a.hoursUntilDischarge - b.hoursUntilDischarge),
+    [bedsList]
+  );
 
-      // Use ML predictions to generate forecasts
-      const forecast7Days = [];
-      let previousPredicted7 = currentOccupancy;
+  const forecasts = useMemo(() => {
+    if (!forecast) return {};
+    const dataSource = forecastMode === 'ml' ? 'ML Model' : 'Manager Assigned';
+    const withTrend = (points, label) => points.map((point, index) => ({
+      date: label(point),
+      predicted: point.predicted,
+      confidence: point.confidence,
+      trend: point.predicted >= (index === 0 ? forecast.current.occupancyRate : points[index - 1].predicted) ? 'up' : 'down',
+      dataSource
+    }));
 
-      // Calculate expected discharges based on selected mode
-      const avgDischargeTime = forecastMode === 'ml' 
-        ? (mlPredictions.discharges.length > 0
-            ? mlPredictions.discharges.reduce((sum, d) => sum + (d.predicted_hours_until_discharge || 0), 0) / mlPredictions.discharges.length
-            : 72)
-        : (managerDischarges.length > 0
-            ? managerDischarges.reduce((sum, d) => sum + (d.hoursUntilDischarge || 0), 0) / managerDischarges.length
-            : 72);
+    return {
+      '7days': withTrend(forecast.daily, (point) => `In ${point.day} day${point.day === 1 ? '' : 's'}`),
+      '30days': withTrend(forecast.weekly, (point) => `Week ${point.week}`)
+    };
+  }, [forecast, forecastMode]);
 
-      for (let i = 0; i < 7; i++) {
-        // Estimate daily discharge rate based on ML predictions
-        const dailyDischargeRate = avgDischargeTime > 0 ? (24 / avgDischargeTime) * occupiedBeds : 0;
-        const expectedDischarges = Math.round(dailyDischargeRate * (i + 1));
-        const expectedOccupancy = Math.max(30, occupiedBeds - expectedDischarges);
-        const predicted = totalBeds > 0 ? Math.round((expectedOccupancy / totalBeds) * 100) : 0;
+  const recommendations = useMemo(() => {
+    if (!forecast) return [];
+    const recs = [];
 
-        forecast7Days.push({
-          date: `In ${i + 1} day${i === 0 ? '' : 's'}`,
-          predicted: Math.max(0, Math.min(100, predicted)),
-          confidence: Math.max(70, 95 - i * 2),
-          trend: predicted >= previousPredicted7 ? 'up' : 'down',
-          dataSource: forecastMode === 'ml' ? 'ML Model' : 'Manager Assigned'
-        });
+    // Ward-level capacity warnings from the live bed list
+    const wardOccupancy = bedsList.reduce((acc, bed) => {
+      if (!acc[bed.ward]) acc[bed.ward] = { total: 0, occupied: 0 };
+      acc[bed.ward].total++;
+      if (bed.status === 'occupied') acc[bed.ward].occupied++;
+      return acc;
+    }, {});
 
-        previousPredicted7 = predicted;
-      }
-
-      const forecast30Days = [];
-      let previousPredicted30 = currentOccupancy;
-
-      for (let i = 0; i < 4; i++) {
-        const weeklyDischarges = Math.round((24 / avgDischargeTime) * occupiedBeds * 7 * (i + 1));
-        const expectedOccupancy = Math.max(30, occupiedBeds - weeklyDischarges);
-        const predicted = totalBeds > 0 ? Math.round((expectedOccupancy / totalBeds) * 100) : 0;
-
-        forecast30Days.push({
-          date: `Week ${i + 1}`,
-          predicted: Math.max(0, Math.min(100, predicted)),
-          confidence: Math.max(65, 90 - i * 5),
-          trend: predicted >= previousPredicted30 ? 'up' : 'down',
-          dataSource: forecastMode === 'ml' ? 'ML Model' : 'Manager Assigned'
-        });
-
-        previousPredicted30 = predicted;
-      }
-
-      setForecasts({
-        '7days': forecast7Days,
-        '30days': forecast30Days
-      });
-
-      // Generate ML-powered recommendations
-      const recs = [];
-
-      // Check for high occupancy wards
-      Object.entries(wardOccupancy).forEach(([ward, data]) => {
-        const rate = data.total > 0 ? (data.occupied / data.total) * 100 : 0;
-        if (rate >= 90) {
-          recs.push({
-            title: `${ward} Critical Capacity`,
-            description: `${ward} is at ${Math.round(rate)}% capacity`,
-            priority: 'critical',
-            action: 'Coordinate with nearby facilities for transfers'
-          });
-        } else if (rate >= 85) {
-          recs.push({
-            title: `${ward} High Occupancy`,
-            description: `${ward} projected to reach 95% capacity soon`,
-            priority: 'high',
-            action: 'Schedule additional staff and prepare for admissions'
-          });
-        }
-      });
-
-      // Discharge recommendations based on selected mode
-      if (forecastMode === 'ml' && mlPredictions.discharges.length > 0) {
-        const upcomingDischarges = mlPredictions.discharges.filter(
-          d => d.predicted_hours_until_discharge && d.predicted_hours_until_discharge < 24
-        );
-        if (upcomingDischarges.length > 0) {
-          recs.push({
-            title: 'Upcoming Discharges Predicted (ML)',
-            description: `${upcomingDischarges.length} bed(s) expected to be available within 24 hours`,
-            priority: 'medium',
-            action: 'Prepare beds for new admissions and coordinate with ER'
-          });
-        }
-      } else if (forecastMode === 'manager' && managerDischarges.length > 0) {
-        const upcomingDischarges = managerDischarges.filter(
-          d => d.hoursUntilDischarge && d.hoursUntilDischarge < 24
-        );
-        if (upcomingDischarges.length > 0) {
-          recs.push({
-            title: 'Scheduled Discharges (Manager)',
-            description: `${upcomingDischarges.length} bed(s) scheduled for discharge within 24 hours`,
-            priority: 'medium',
-            action: 'Confirm discharge readiness and prepare beds for turnover'
-          });
-        }
-      }
-
-      // ML-based cleaning recommendations
-      if (mlPredictions.cleaningTimes.length > 0) {
-        const longCleaningBeds = mlPredictions.cleaningTimes.filter(
-          c => c.predicted_cleaning_minutes && c.predicted_cleaning_minutes > 30
-        );
-        if (longCleaningBeds.length > 0) {
-          recs.push({
-            title: 'Extended Cleaning Times Predicted',
-            description: `${longCleaningBeds.length} bed(s) require >30 min cleaning`,
-            priority: 'medium',
-            action: 'Allocate additional cleaning staff to priority areas'
-          });
-        }
-      }
-
-      // Add general recommendations
-      if (currentOccupancy < 70) {
+    Object.entries(wardOccupancy).forEach(([ward, data]) => {
+      const rate = data.total > 0 ? (data.occupied / data.total) * 100 : 0;
+      if (rate >= 90) {
         recs.push({
-          title: 'Maintenance Window Available',
-          description: 'Lower occupancy predicted for upcoming period',
-          priority: 'low',
-          action: 'Schedule routine maintenance and deep cleaning'
+          title: `${ward} Critical Capacity`,
+          description: `${ward} is at ${Math.round(rate)}% capacity`,
+          priority: 'critical',
+          action: 'Coordinate with nearby facilities for transfers'
         });
-      }
-
-      if (currentOccupancy >= 85) {
+      } else if (rate >= 80) {
         recs.push({
-          title: 'Prepare for Peak Demand',
-          description: `Hospital-wide occupancy at ${currentOccupancy}%`,
+          title: `${ward} High Occupancy`,
+          description: `${ward} is at ${Math.round(rate)}% capacity`,
           priority: 'high',
-          action: 'Ensure adequate staffing levels'
+          action: 'Schedule additional staff and prepare for admissions'
         });
       }
+    });
 
-      setRecommendations(recs.slice(0, 4));
-    };
-
-    if (bedsList.length > 0) {
-      generateForecasts();
+    const dischargesIn24h = forecast.discharges.filter((d) => d.predicted_hours_until_discharge < 24).length;
+    if (dischargesIn24h > 0) {
+      recs.push({
+        title: forecastMode === 'ml' ? 'Upcoming Discharges Predicted' : 'Scheduled Discharges',
+        description: `${dischargesIn24h} bed(s) expected to be released within 24 hours`,
+        priority: 'medium',
+        action: 'Confirm discharge readiness and prepare beds for turnover'
+      });
     }
-  }, [bedsList, mlPredictions, managerDischarges, forecastMode]);
+
+    const longCleanings = forecast.cleaningTimes.filter((c) => c.predicted_cleaning_minutes > 30).length;
+    if (longCleanings > 0) {
+      recs.push({
+        title: 'Extended Cleaning Times Predicted',
+        description: `${longCleanings} bed(s) likely to need more than 30 min of cleaning`,
+        priority: 'medium',
+        action: 'Allocate additional cleaning staff to priority areas'
+      });
+    }
+
+    const peak = forecast.daily.reduce((max, point) => (point.predicted > max.predicted ? point : max), forecast.daily[0]);
+    if (peak && peak.predicted >= 85) {
+      recs.push({
+        title: 'Prepare for Peak Demand',
+        description: `Occupancy projected to reach ${peak.predicted}% in ${peak.day} day${peak.day === 1 ? '' : 's'}`,
+        priority: 'high',
+        action: 'Ensure adequate staffing levels'
+      });
+    } else if (forecast.current.occupancyRate < 70) {
+      recs.push({
+        title: 'Maintenance Window Available',
+        description: `Occupancy is at ${forecast.current.occupancyRate}% with no peak expected this week`,
+        priority: 'low',
+        action: 'Schedule routine maintenance and deep cleaning'
+      });
+    }
+
+    return recs.slice(0, 4);
+  }, [forecast, bedsList, forecastMode]);
 
   const currentForecasts = forecasts[forecastPeriod] || [];
 
@@ -348,7 +199,7 @@ const ForecastingInsights = () => {
                   : 'border-purple-500/50 text-purple-300 hover:bg-purple-500/20'
               }`}
             >
-              🤖 ML Model Predictions
+              🤖 Predicted Discharges
             </Button>
             <Button
               onClick={() => setForecastMode('manager')}
@@ -364,13 +215,21 @@ const ForecastingInsights = () => {
           </div>
           <p className="text-sm text-slate-400 mt-3">
             {forecastMode === 'ml' 
-              ? 'Using machine learning to predict discharge times based on historical patterns and patient data.'
+              ? (usesMlService
+                  ? 'Using the machine learning service to predict discharge times from historical patterns.'
+                  : 'Using statistical estimates from this hospital\'s historical length of stay, cleaning times and admission patterns.')
               : 'Using discharge times manually assigned by managers for scheduled patient releases.'}
           </p>
         </CardContent>
       </Card>
 
-      {isLoading && (
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/40 rounded-lg p-4">
+          <p className="text-red-400 text-sm">{error}</p>
+        </div>
+      )}
+
+      {isLoading && !forecast && (
         <div className="bg-blue-500/20 border border-blue-500/50 rounded-lg p-4">
           <p className="text-blue-400 text-sm">Loading predictions...</p>
         </div>
@@ -384,105 +243,27 @@ const ForecastingInsights = () => {
           <MLDischargePredictionCard 
             predictions={mlPredictions.discharges} 
             maxDisplay={5}
+            sourceLabel={predictionLabel}
           />
 
           {/* Cleaning Predictions */}
           <MLCleaningPredictionCard 
             predictions={mlPredictions.cleaningTimes} 
             maxDisplay={5}
+            sourceLabel={predictionLabel}
           />
 
           {/* Availability Forecast */}
           <MLAvailabilityCard 
-        available24h={
-          (bedsList.filter(b => b.status === 'available').length) + 
-          (mlPredictions.discharges.filter(d => d.predicted_hours_until_discharge && d.predicted_hours_until_discharge < 24).length)
-        }
-        available48h={
-          (bedsList.filter(b => b.status === 'available').length) + 
-          (mlPredictions.discharges.filter(d => d.predicted_hours_until_discharge && d.predicted_hours_until_discharge < 48).length)
-        }
-        currentAvailable={bedsList.filter(b => b.status === 'available').length}
-        totalBeds={bedsList.length}
+        available24h={forecast?.availability.available24h ?? 0}
+        available48h={forecast?.availability.available48h ?? 0}
+        currentAvailable={current?.available ?? 0}
+        totalBeds={current?.totalBeds ?? 0}
+        sourceLabel={predictionLabel}
         confidence24h={0.85}
         confidence48h={0.75}
       />
 
-          {/* ML Predictions Summary */}
-          {mlPredictions.discharges.length > 0 && (
-            <Card className="bg-gradient-to-br from-purple-500/10 to-blue-500/10 border-purple-500/30">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-xl">
-                  <TrendingUp className="w-5 h-5 text-purple-400" />
-                  ML Discharge Predictions
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid gap-3 md:grid-cols-2">
-                  {mlPredictions.discharges.slice(0, 6).map((prediction, index) => (
-                    <div
-                      key={index}
-                      className="p-3 bg-neutral-900/50 rounded-lg border border-purple-500/30"
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-semibold text-white">
-                          {prediction.ward} - Bed {prediction.bedNumber}
-                        </span>
-                        <Badge className="bg-purple-500/20 text-purple-300">
-                          {prediction.predicted_hours_until_discharge 
-                            ? `~${Math.round(prediction.predicted_hours_until_discharge)}h`
-                            : 'N/A'}
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-slate-400">
-                        Estimated discharge: {prediction.predicted_hours_until_discharge 
-                          ? `${Math.round(prediction.predicted_hours_until_discharge / 24)} days`
-                          : 'Data insufficient'}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Cleaning Time Predictions */}
-          {mlPredictions.cleaningTimes.length > 0 && (
-            <Card className="bg-gradient-to-br from-green-500/10 to-teal-500/10 border-green-500/30">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-xl">
-                  <AlertTriangle className="w-5 h-5 text-green-400" />
-                  ML Cleaning Duration Predictions
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid gap-3 md:grid-cols-2">
-                  {mlPredictions.cleaningTimes.slice(0, 6).map((prediction, index) => (
-                    <div
-                      key={index}
-                      className="p-3 bg-neutral-900/50 rounded-lg border border-green-500/30"
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-semibold text-white">
-                          {prediction.ward} - Bed {prediction.bedNumber}
-                        </span>
-                        <Badge className="bg-green-500/20 text-green-300">
-                          {prediction.predicted_cleaning_minutes 
-                            ? `~${Math.round(prediction.predicted_cleaning_minutes)} min`
-                            : 'N/A'}
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-slate-400">
-                        {prediction.predicted_cleaning_minutes > 30 
-                          ? '⚠️ Extended cleaning required'
-                          : '✓ Standard cleaning time'}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
         </>
       ) : (
         <>
@@ -589,7 +370,7 @@ const ForecastingInsights = () => {
                           ? 'bg-purple-500/20 text-purple-300' 
                           : 'bg-blue-500/20 text-blue-300'
                       }`}>
-                        {forecast.dataSource === 'ML Model' ? '🤖 ML' : '👤 Manager'}
+                        {forecast.dataSource === 'ML Model' ? '🤖 Predicted' : '👤 Manager'}
                       </Badge>
                       {forecast.trend === 'up' ? (
                         <ArrowUp className="w-4 h-4 text-red-400" />

@@ -51,6 +51,11 @@ const alertSchema = new mongoose.Schema(
         message: '{VALUE} is not a valid target role'
       }
     }],
+    // Resolved alerts (e.g. the related request was approved/rejected) are hidden for everyone
+    read: {
+      type: Boolean,
+      default: false
+    },
     dismissedBy: [{
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'

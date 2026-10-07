@@ -4,11 +4,11 @@ const router = express.Router();
 const { getAllLogs, getBedLogs, getUserLogs } = require('../controllers/logsController');
 const { protect } = require('../middleware/authMiddleware');
 
-// Public routes (can be changed to protected if needed)
+// All log routes require an authenticated user
+router.use(protect);
+
 router.get('/', getAllLogs);
 router.get('/bed/:bedId', getBedLogs);
-
-// Protected routes
-router.get('/user/:userId', protect, getUserLogs);
+router.get('/user/:userId', getUserLogs);
 
 module.exports = router;

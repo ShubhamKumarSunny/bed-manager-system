@@ -78,7 +78,7 @@ function Dashboard() {
     const [selectedCategory, setSelectedCategory] = useState('ALL');
     const [isBooking, setIsBooking] = useState(false);
     const [occupiedBeds, setOccupiedBeds] = useState([]);
-    const [allBeds, setAllBeds] = useState([]);
+    const [, setAllBeds] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showSettings, setShowSettings] = useState(false);
 

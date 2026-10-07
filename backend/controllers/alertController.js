@@ -26,11 +26,13 @@ exports.getAlerts = async (req, res) => {
     // Fetch alerts filtered by user's role and ward, excluding dismissed ones
     const alerts = await Alert.find({
       ...filter,
+      read: { $ne: true },
       dismissedBy: { $ne: req.user._id } // Exclude alerts dismissed by this user
     })
       .populate('relatedBed', 'bedId ward status')
       .populate('relatedRequest', 'patientId location status')
-      .sort({ timestamp: -1 });
+      .sort({ timestamp: -1 })
+      .limit(50);
 
     res.status(200).json({
       success: true,

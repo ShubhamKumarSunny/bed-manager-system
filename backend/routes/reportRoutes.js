@@ -11,21 +11,24 @@ const {
   updateSchedule,
   runScheduleNow
 } = require('../controllers/reportController');
-const { protect } = require('../middleware/authMiddleware');
+const { protect, authorize } = require('../middleware/authMiddleware');
+
+// Reports are for hospital administration and ward managers only
+router.use(protect, authorize('hospital_admin', 'manager'));
 
 // Report generation routes
-router.post('/generate/pdf', protect, generatePDFReport);
-router.post('/generate/csv', protect, generateCSVReport);
-router.post('/email', protect, emailReport);
+router.post('/generate/pdf', generatePDFReport);
+router.post('/generate/csv', generateCSVReport);
+router.post('/email', emailReport);
 
 // Report history routes
-router.get('/history', protect, getReportHistory);
-router.get('/download/:fileName', protect, downloadReport);
-router.delete('/:fileName', protect, deleteReport);
+router.get('/history', getReportHistory);
+router.get('/download/:fileName', downloadReport);
+router.delete('/:fileName', deleteReport);
 
 // Scheduled report routes
-router.get('/schedules', protect, getSchedules);
-router.put('/schedules/:scheduleId', protect, updateSchedule);
-router.post('/schedules/:scheduleId/run', protect, runScheduleNow);
+router.get('/schedules', getSchedules);
+router.put('/schedules/:scheduleId', updateSchedule);
+router.post('/schedules/:scheduleId/run', runScheduleNow);
 
 module.exports = router;

@@ -1,8 +1,9 @@
 import axios from 'axios';
+import { API_BASE_URL } from './config';
 
 // Create axios instance with base URL
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001/api',
+  baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -11,35 +12,33 @@ const api = axios.create({
 // Request interceptor to add auth token to requests
 api.interceptors.request.use(
   (config) => {
-    // Get token from localStorage
     const token = localStorage.getItem('authToken');
-    
+
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-    
+
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
 // Response interceptor to handle common errors
 api.interceptors.response.use(
-  (response) => {
-    return response;
-  },
+  (response) => response,
   (error) => {
-    // Handle 401 Unauthorized errors
-    if (error.response && error.response.status === 401) {
-      // Clear token and redirect to login
+    const isAuthCall = error.config?.url?.startsWith('/auth/');
+
+    // An expired/invalid session sends the user back to the login page.
+    // Failed login attempts are handled by the login form itself.
+    if (error.response?.status === 401 && !isAuthCall) {
       localStorage.removeItem('authToken');
       localStorage.removeItem('user');
-      // You can dispatch a logout action here if needed
-      window.location.href = '/login';
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
     }
-    
+
     return Promise.reject(error);
   }
 );

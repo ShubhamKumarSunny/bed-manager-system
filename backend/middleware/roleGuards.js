@@ -9,28 +9,13 @@ const mongoose = require('mongoose');
  * @note    Modifies req.query to filter beds based on user role
  */
 exports.canReadBeds = (req, res, next) => {
-  try {
-    const { role, ward } = req.user;
-
-    // ER staff → only available beds
-    if (role === 'er_staff') {
-      req.query.status = 'available';
-    }
-
-    // Ward staff → only their assigned ward
-    if (role === 'ward_staff' && ward) {
-      req.query.ward = ward;
-    }
-
-    // Manager, hospital admin, technical team → full access (no filtering)
-
-    return next();
-  } catch (err) {
-    return res.status(500).json({
-      success: false,
-      message: 'Authorization error: ' + err.message
-    });
+  // Bed availability is visible to every authenticated role (ER staff and
+  // ward staff need hospital-wide numbers). Patient details are redacted per
+  // role in the controller.
+  if (!req.user) {
+    return res.status(401).json({ success: false, message: 'Not authorized' });
   }
+  return next();
 };
 
 /**
@@ -52,7 +37,8 @@ exports.canUpdateBedStatus = async (req, res, next) => {
     }
 
     // For ward staff, verify they can only update beds in their assigned ward
-    if (role === 'ward_staff') {
+    // Ward staff and managers are limited to beds in their assigned ward
+    if (role === 'ward_staff' || role === 'manager') {
       // Find the bed to check its ward
       let bed;
       if (mongoose.Types.ObjectId.isValid(id)) {

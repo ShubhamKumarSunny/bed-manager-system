@@ -19,7 +19,8 @@ const MLAvailabilityCard = ({
   currentAvailable = null,
   totalBeds = null,
   confidence24h = 0.85,
-  confidence48h = 0.75
+  confidence48h = 0.75,
+  sourceLabel = 'ML Model'
 }) => {
   // Calculate net change
   const change24h = currentAvailable !== null ? available24h - currentAvailable : null;
@@ -84,7 +85,7 @@ const MLAvailabilityCard = ({
             Bed Availability Forecast
           </CardTitle>
           <Badge className="bg-blue-500/20 text-blue-300 border-blue-500/40">
-            ML Model
+            {sourceLabel}
           </Badge>
         </div>
         <p className="text-xs text-slate-400 mt-1">
@@ -239,7 +240,7 @@ const MLAvailabilityCard = ({
           <div className="flex items-center justify-between text-xs text-slate-400">
             <div className="flex items-center gap-1">
               <Target className="w-3 h-3" />
-              <span>ML-based capacity forecast</span>
+              <span>Net of expected discharges and admissions</span>
             </div>
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-1">

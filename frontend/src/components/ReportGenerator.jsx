@@ -645,7 +645,7 @@ const ReportGenerator = () => {
       setIsEmailing(false);
     } catch (error) {
       console.error('Error sending email:', error);
-      alert('Failed to send email. Please check your email configuration in the backend.');
+      alert(error.response?.data?.message || 'Failed to send email. Please try again.');
       setIsEmailing(false);
     }
   };

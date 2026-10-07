@@ -24,7 +24,7 @@ exports.generatePDFReport = async (req, res) => {
 
     // Generate PDF
     console.log('📄 Starting PDF generation...');
-    const pdfResult = await reportService.generatePDF(reportData);
+    const pdfResult = await reportService.generatePDF(reportData, req.user._id);
     console.log('✅ PDF generation complete');
 
     // Send PDF as response
@@ -33,11 +33,10 @@ exports.generatePDFReport = async (req, res) => {
     res.send(pdfResult.buffer);
     console.log('✅ PDF sent to client');
   } catch (error) {
-    console.error('❌ Generate PDF report error:', error.message);
-    console.error('Stack trace:', error.stack);
+    console.error('❌ Generate PDF report error:', error);
     res.status(500).json({
       success: false,
-      message: 'Error generating PDF report: ' + error.message,
+      message: 'Error generating PDF report',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -60,7 +59,7 @@ exports.generateCSVReport = async (req, res) => {
     });
 
     // Generate CSV
-    const csvResult = await reportService.generateCSV(reportData);
+    const csvResult = await reportService.generateCSV(reportData, req.user._id);
 
     // Send CSV as response
     res.setHeader('Content-Type', 'text/csv');
@@ -85,10 +84,17 @@ exports.emailReport = async (req, res) => {
   try {
     const { reportType, dateRange, wards, email, format = 'pdf' } = req.body;
 
-    if (!email) {
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return res.status(400).json({
         success: false,
-        message: 'Email address is required'
+        message: 'A valid email address is required'
+      });
+    }
+
+    if (!emailService.isConfigured()) {
+      return res.status(503).json({
+        success: false,
+        message: 'Email delivery is not configured on this server. Download the report instead.'
       });
     }
 
@@ -179,8 +185,7 @@ exports.downloadReport = async (req, res) => {
       });
     }
 
-    const ext = fileName.split('.').pop();
-    const contentType = ext === 'pdf' ? 'application/pdf' : 'text/csv';
+    const contentType = fileName.endsWith('.pdf') ? 'application/pdf' : 'text/csv';
 
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);

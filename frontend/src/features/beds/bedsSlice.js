@@ -72,7 +72,8 @@ const bedsSlice = createSlice({
     builder
       // Fetch Beds
       .addCase(fetchBeds.pending, (state) => {
-        state.status = 'loading';
+        // Background refreshes keep showing the current grid instead of a spinner
+        if (state.status !== 'succeeded') state.status = 'loading';
         state.error = null;
       })
       .addCase(fetchBeds.fulfilled, (state, action) => {

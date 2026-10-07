@@ -14,6 +14,8 @@ const OccupancyTrendsChart = () => {
   const [selectedWard, setSelectedWard] = useState('allwards');
   const [trendData, setTrendData] = useState({});
   const [wards, setWards] = useState(['All Wards']);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     if (status === 'idle') {
@@ -23,77 +25,38 @@ const OccupancyTrendsChart = () => {
 
   useEffect(() => {
     // Extract unique wards from beds data
-    const uniqueWards = ['All Wards', ...new Set(bedsList.map(bed => bed.ward))];
-    setWards(uniqueWards);
+    const uniqueWards = ['All Wards', ...[...new Set(bedsList.map(bed => bed.ward))].sort()];
+    // Keep the same array when nothing changed so the history is not refetched
+    setWards((previous) => (previous.join('|') === uniqueWards.join('|') ? previous : uniqueWards));
   }, [bedsList]);
 
+  // Load the real occupancy history for the selected ward and period
   useEffect(() => {
-    // Generate trend data based on current bed status filtered by selected ward
-    const generateTrendData = () => {
-      // Filter beds by selected ward
-      const filteredBeds = selectedWard === 'allwards' 
-        ? bedsList 
-        : bedsList.filter(bed => bed.ward.toLowerCase().replace(/\s+/g, '') === selectedWard);
+    let cancelled = false;
+    const wardName = wards.find((ward) => ward.toLowerCase().replace(/\s+/g, '') === selectedWard);
 
-      const totalBeds = filteredBeds.length;
-      const occupiedBeds = filteredBeds.filter(bed => bed.status === 'occupied').length;
-      const currentOccupancy = totalBeds > 0 ? Math.round((occupiedBeds / totalBeds) * 100) : 0;
-
-      // Create a seed based on ward name for consistent but different patterns per ward
-      const wardSeed = selectedWard === 'allwards' ? 0 : selectedWard.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-      
-      // Generate realistic trends with variation around current occupancy
-      let data;
-
-      if (timeRange === '7days') {
-        const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-        data = days.map((day, i) => {
-          // Create realistic variation: weekdays higher, weekends lower
-          const isWeekend = i >= 5;
-          const baseVariation = isWeekend ? -5 : 2;
-          // Use ward seed to create different but consistent patterns per ward
-          const seededVariation = ((wardSeed + i * 7) % 9) - 4; // -4 to +4
-          const occupancy = Math.max(0, Math.min(100, currentOccupancy + baseVariation + seededVariation));
-
-          return {
-            day,
-            occupancy,
-            capacity: 100
-          };
+    const fetchHistory = async () => {
+      try {
+        setIsLoading(true);
+        const response = await api.get('/analytics/occupancy-rate-history', {
+          params: { range: timeRange, ...(selectedWard !== 'allwards' && wardName ? { ward: wardName } : {}) }
         });
-      } else if (timeRange === '30days') {
-        // 4 weeks of data
-        data = Array.from({ length: 4 }, (_, i) => {
-          const seededVariation = ((wardSeed + i * 11) % 11) - 5; // -5 to +5
-          const occupancy = Math.max(0, Math.min(100, currentOccupancy + seededVariation));
-
-          return {
-            day: `Week ${i + 1}`,
-            occupancy,
-            capacity: 100
-          };
-        });
-      } else {
-        // 3 months of data
-        data = Array.from({ length: 3 }, (_, i) => {
-          const seededVariation = ((wardSeed + i * 13) % 9) - 4; // -4 to +4
-          const occupancy = Math.max(0, Math.min(100, currentOccupancy + seededVariation));
-
-          return {
-            day: `Month ${i + 1}`,
-            occupancy,
-            capacity: 100
-          };
-        });
+        if (!cancelled) {
+          setTrendData({ [timeRange]: response.data.data.points });
+          setError(null);
+        }
+      } catch (err) {
+        if (!cancelled) setError(err.response?.data?.message || 'Failed to load occupancy history');
+      } finally {
+        if (!cancelled) setIsLoading(false);
       }
-
-      setTrendData({ [timeRange]: data });
     };
 
-    if (bedsList.length > 0) {
-      generateTrendData();
-    }
-  }, [bedsList, timeRange, selectedWard]);
+    fetchHistory();
+    return () => {
+      cancelled = true;
+    };
+  }, [timeRange, selectedWard, wards]);
 
   const currentData = trendData[timeRange] || [];
   const avgOccupancy = currentData.length > 0
@@ -137,7 +100,7 @@ const OccupancyTrendsChart = () => {
     const highOccupancyDays = currentData.filter(d => d.occupancy >= 90);
     if (highOccupancyDays.length > 0) {
       const percentage = Math.round((highOccupancyDays.length / currentData.length) * 100);
-      insights.push(`High occupancy (≥90%) detected on ${percentage}% of days`);
+      insights.push(`High occupancy (≥90%) in ${percentage}% of the periods shown`);
     } else if (avgOccupancy >= 85) {
       insights.push('Average occupancy approaching capacity - monitor closely');
     } else if (avgOccupancy < 70) {
@@ -150,9 +113,9 @@ const OccupancyTrendsChart = () => {
   const dynamicInsights = generateInsights();
 
   const metrics = [
-    { label: 'Average Occupancy', value: `${avgOccupancy}%`, change: '+0%' },
-    { label: 'Peak Occupancy', value: `${maxOccupancy}%`, change: '+0%' },
-    { label: 'Lowest Occupancy', value: `${minOccupancy}%`, change: '+0%' },
+    { label: 'Average Occupancy', value: `${avgOccupancy}%` },
+    { label: 'Peak Occupancy', value: `${maxOccupancy}%` },
+    { label: 'Lowest Occupancy', value: `${minOccupancy}%` },
   ];
 
   return (
@@ -213,9 +176,6 @@ const OccupancyTrendsChart = () => {
               <p className="text-sm text-neutral-400 mb-1">{metric.label}</p>
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-bold text-white">{metric.value}</span>
-                <span className={`text-sm ${metric.change.startsWith('+') ? 'text-green-400' : 'text-red-400'}`}>
-                  {metric.change}
-                </span>
               </div>
             </div>
           ))}
@@ -228,6 +188,11 @@ const OccupancyTrendsChart = () => {
             <span>100%</span>
           </div>
           <div className="relative h-64 bg-neutral-900 rounded-lg border border-neutral-700 p-4">
+            {currentData.length === 0 && (
+              <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-500">
+                {error || (isLoading ? 'Loading occupancy history...' : 'No occupancy history for this period yet')}
+              </div>
+            )}
             <div className="h-full flex items-end justify-around gap-2">
               {currentData.map((item, index) => {
                 const heightPercentage = item.occupancy;

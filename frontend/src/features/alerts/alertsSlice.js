@@ -28,7 +28,8 @@ const alertsSlice = createSlice({
   extraReducers: (builder) => {
     builder
       .addCase(fetchAlerts.pending, (state) => {
-        state.status = 'loading';
+        // Background refreshes keep showing the current list instead of a spinner
+        if (state.status !== 'succeeded') state.status = 'loading';
       })
       .addCase(fetchAlerts.fulfilled, (state, action) => {
         state.status = 'succeeded';

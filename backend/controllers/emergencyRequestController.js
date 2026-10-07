@@ -147,7 +147,8 @@ exports.getAllEmergencyRequests = async (req, res) => {
     // Fetch emergency requests and populate patient details
     const emergencyRequests = await EmergencyRequest.find(filter)
       .populate('patientId', 'name email')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .limit(200);
 
     res.status(200).json({
       success: true,

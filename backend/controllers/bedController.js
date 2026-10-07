@@ -35,8 +35,21 @@ exports.getAllBeds = async (req, res) => {
     }
 
     // Fetch beds
-    const beds = await Bed.find(filter)
-      .sort({ ward: 1, bedId: 1 });
+    let beds = await Bed.find(filter)
+      .sort({ ward: 1, bedId: 1 })
+      .lean();
+
+    // Every role sees bed availability hospital-wide, but patient details are
+    // limited to administrators and to the staff of the bed's own ward.
+    const { role, ward: userWard } = req.user;
+    const seesAllPatients = ['hospital_admin', 'technical_team'].includes(role);
+    if (!seesAllPatients) {
+      beds = beds.map(bed => {
+        const ownWard = ['manager', 'ward_staff'].includes(role) && bed.ward === userWard;
+        if (ownWard) return bed;
+        return { ...bed, patientName: null, patientId: null, notes: null, dischargeNotes: null };
+      });
+    }
 
     res.status(200).json({
       success: true,
@@ -314,8 +327,9 @@ const checkOccupancyAndCreateAlerts = async (ward, io) => {
       // Check if alert already exists for this ward (to avoid duplicates)
       const existingAlert = await Alert.findOne({
         type: 'occupancy_high',
-        message: { $regex: ward, $options: 'i' },
-        read: false
+        ward,
+        read: { $ne: true },
+        timestamp: { $gte: new Date(Date.now() - 6 * 60 * 60 * 1000) }
       });
 
       if (!existingAlert) {
@@ -361,7 +375,7 @@ const checkOccupancyAndCreateAlerts = async (ward, io) => {
  * 
  * Task 2.5: Returns detailed information about all occupied beds including:
  * - Patient information (name, ID)
- * - Admission time (using updatedAt as proxy)
+ * - Admission time (latest "assigned" occupancy log)
  * - Time in bed calculation
  * - Ward information
  */
@@ -388,11 +402,17 @@ exports.getOccupiedBeds = async (req, res) => {
       .sort({ ward: 1, bedId: 1 })
       .lean();
 
+    // A patient's admission time is the latest "assigned" log of their bed
+    const admissions = await OccupancyLog.aggregate([
+      { $match: { bedId: { $in: occupiedBeds.map(bed => bed._id) }, statusChange: 'assigned' } },
+      { $group: { _id: '$bedId', admittedAt: { $max: '$timestamp' } } }
+    ]);
+    const admittedAt = new Map(admissions.map(a => [String(a._id), a.admittedAt]));
+
     // Enrich each bed with calculated fields
     const now = new Date();
     const enrichedBeds = occupiedBeds.map(bed => {
-      // Calculate time in bed (using updatedAt as admission time proxy)
-      const admissionTime = bed.updatedAt || bed.createdAt;
+      const admissionTime = admittedAt.get(String(bed._id)) || bed.updatedAt || bed.createdAt;
       const timeInBedMs = now - admissionTime;
       const timeInBedHours = timeInBedMs / (1000 * 60 * 60);
       const timeInBedDays = timeInBedMs / (1000 * 60 * 60 * 24);
@@ -746,6 +766,14 @@ exports.markCleaningComplete = async (req, res) => {
     }
     
     // Verify bed is in cleaning status
+    // Ward staff and managers can only act on beds in their own ward
+    if (['ward_staff', 'manager'].includes(req.user.role) && bed.ward !== req.user.ward) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to update beds in this ward.'
+      });
+    }
+
     if (bed.status !== 'cleaning') {
       return res.status(400).json({
         success: false,
@@ -967,31 +995,27 @@ exports.predictDischarge = async (req, res) => {
       });
     }
 
-    // Call ML service for prediction
-    const prediction = await mlService.predictDischarge(bed.ward, bed.createdAt);
+    // The patient was admitted when the bed was last assigned
+    const admission = await OccupancyLog.findOne({ bedId: bed._id, statusChange: 'assigned' })
+      .sort({ timestamp: -1 })
+      .select('timestamp')
+      .lean();
+    const admissionTime = admission ? admission.timestamp : bed.updatedAt;
 
-    if (prediction.success) {
-      res.status(200).json({
-        success: true,
-        message: 'Discharge prediction generated successfully',
-        data: {
-          bed: bed.toObject(),
-          prediction: prediction.data.prediction,
-          metadata: prediction.data.metadata
-        }
-      });
-    } else {
-      // Use fallback if ML service failed
-      res.status(200).json({
-        success: true,
-        message: 'Discharge prediction generated (using fallback)',
-        data: {
-          bed: bed.toObject(),
-          prediction: prediction.fallback,
-          note: 'ML service unavailable, using fallback estimate'
-        }
-      });
-    }
+    // ML service when configured, statistical estimate otherwise
+    const prediction = await mlService.predictDischarge(bed.ward, admissionTime);
+
+    res.status(200).json({
+      success: true,
+      message: 'Discharge prediction generated successfully',
+      data: {
+        bed: bed.toObject(),
+        admissionTime,
+        source: prediction.source,
+        prediction: prediction.success ? prediction.data.prediction : prediction.fallback,
+        metadata: prediction.success ? prediction.data.metadata : undefined
+      }
+    });
   } catch (error) {
     console.error('Predict discharge error:', error);
     res.status(500).json({
@@ -1027,35 +1051,23 @@ exports.predictCleaningDuration = async (req, res) => {
       });
     }
 
-    // Call ML service for prediction
+    // ML service when configured, statistical estimate otherwise
     const prediction = await mlService.predictCleaningDuration(
       bed.ward,
-      estimatedDuration || 30,
-      new Date()
+      estimatedDuration || bed.estimatedCleaningDuration || 30,
+      bed.cleaningStartTime || new Date()
     );
 
-    if (prediction.success) {
-      res.status(200).json({
-        success: true,
-        message: 'Cleaning duration prediction generated successfully',
-        data: {
-          bed: bed.toObject(),
-          prediction: prediction.data.prediction,
-          metadata: prediction.data.metadata
-        }
-      });
-    } else {
-      // Use fallback if ML service failed
-      res.status(200).json({
-        success: true,
-        message: 'Cleaning duration prediction generated (using fallback)',
-        data: {
-          bed: bed.toObject(),
-          prediction: prediction.fallback,
-          note: 'ML service unavailable, using fallback estimate'
-        }
-      });
-    }
+    res.status(200).json({
+      success: true,
+      message: 'Cleaning duration prediction generated successfully',
+      data: {
+        bed: bed.toObject(),
+        source: prediction.source,
+        prediction: prediction.success ? prediction.data.prediction : prediction.fallback,
+        metadata: prediction.success ? prediction.data.metadata : undefined
+      }
+    });
   } catch (error) {
     console.error('Predict cleaning duration error:', error);
     res.status(500).json({

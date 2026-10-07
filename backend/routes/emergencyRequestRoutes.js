@@ -10,10 +10,14 @@ const {
   approveEmergencyRequest,
   rejectEmergencyRequest
 } = require('../controllers/emergencyRequestController');
-const { protect } = require('../middleware/authMiddleware');
+const { protect, authorize } = require('../middleware/authMiddleware');
+
+// Who may raise/cancel requests, and who may decide on them
+const canRequest = authorize('er_staff', 'manager', 'hospital_admin');
+const canDecide = authorize('manager', 'hospital_admin');
 
 // POST /api/emergency-requests - Create new emergency request (ER Staff)
-router.post('/', protect, createEmergencyRequest);
+router.post('/', protect, canRequest, createEmergencyRequest);
 
 // GET /api/emergency-requests - Get all emergency requests (filtered by ward for managers)
 router.get('/', protect, getAllEmergencyRequests);
@@ -22,15 +26,15 @@ router.get('/', protect, getAllEmergencyRequests);
 router.get('/:id', protect, getEmergencyRequestById);
 
 // PATCH /api/emergency-requests/:id/approve - Approve request (Manager only)
-router.patch('/:id/approve', protect, approveEmergencyRequest);
+router.patch('/:id/approve', protect, canDecide, approveEmergencyRequest);
 
 // PATCH /api/emergency-requests/:id/reject - Reject request (Manager only)
-router.patch('/:id/reject', protect, rejectEmergencyRequest);
+router.patch('/:id/reject', protect, canDecide, rejectEmergencyRequest);
 
 // PUT /api/emergency-requests/:id - Update emergency request
-router.put('/:id', protect, updateEmergencyRequest);
+router.put('/:id', protect, canDecide, updateEmergencyRequest);
 
 // DELETE /api/emergency-requests/:id - Delete emergency request
-router.delete('/:id', protect, deleteEmergencyRequest);
+router.delete('/:id', protect, canRequest, deleteEmergencyRequest);
 
 module.exports = router;

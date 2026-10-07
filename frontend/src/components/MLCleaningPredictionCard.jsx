@@ -13,7 +13,7 @@ import { Sparkles, Clock, AlertTriangle, CheckCircle } from 'lucide-react';
  * @param {string} predictions[].predicted_end_time - ISO datetime string for completion
  * @param {number} maxDisplay - Maximum number of predictions to show (default: 5)
  */
-const MLCleaningPredictionCard = ({ predictions = [], maxDisplay = 5 }) => {
+const MLCleaningPredictionCard = ({ predictions = [], maxDisplay = 5, sourceLabel = 'ML Model' }) => {
   // Filter out invalid predictions and limit display
   const validPredictions = predictions
     .filter(p => p && p.predicted_cleaning_minutes != null)
@@ -33,7 +33,7 @@ const MLCleaningPredictionCard = ({ predictions = [], maxDisplay = 5 }) => {
             <Sparkles className="w-12 h-12 mx-auto mb-3 text-slate-600" />
             <p className="text-sm">No cleaning predictions available</p>
             <p className="text-xs text-slate-500 mt-1">
-              Predictions will appear for beds in maintenance
+              Predictions will appear for beds being cleaned
             </p>
           </div>
         </CardContent>
@@ -84,7 +84,7 @@ const MLCleaningPredictionCard = ({ predictions = [], maxDisplay = 5 }) => {
             Cleaning Duration Predictions
           </CardTitle>
           <Badge className="bg-green-500/20 text-green-300 border-green-500/40">
-            ML Model
+            {sourceLabel}
           </Badge>
         </div>
         <p className="text-xs text-slate-400 mt-1">

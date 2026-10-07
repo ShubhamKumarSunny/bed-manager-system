@@ -97,7 +97,8 @@ exports.getAllLogs = async (req, res) => {
     let logs = await OccupancyLog.find(filter)
       .populate('bedId', 'bedId ward status')
       .populate('userId', 'name email role')
-      .sort({ timestamp: -1 });
+      .sort({ timestamp: -1 })
+      .limit(Math.min(parseInt(req.query.limit, 10) || 200, 1000));
 
     // Filter by ward if specified (after population)
     if (ward) {
@@ -159,7 +160,8 @@ exports.getBedLogs = async (req, res) => {
     const logs = await OccupancyLog.find({ bedId: bedObjectId })
       .populate('bedId', 'bedId ward status')
       .populate('userId', 'name email role')
-      .sort({ timestamp: -1 });
+      .sort({ timestamp: -1 })
+      .limit(Math.min(parseInt(req.query.limit, 10) || 200, 1000));
 
     res.status(200).json({
       success: true,
@@ -198,7 +200,8 @@ exports.getUserLogs = async (req, res) => {
     const logs = await OccupancyLog.find({ userId })
       .populate('bedId', 'bedId ward status')
       .populate('userId', 'name email role')
-      .sort({ timestamp: -1 });
+      .sort({ timestamp: -1 })
+      .limit(Math.min(parseInt(req.query.limit, 10) || 200, 1000));
 
     res.status(200).json({
       success: true,

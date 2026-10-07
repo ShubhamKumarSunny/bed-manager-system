@@ -1,290 +1,237 @@
 import { io } from 'socket.io-client';
 import { updateBedInList, fetchBeds } from '../features/beds/bedsSlice';
-import { addAlert } from '../features/alerts/alertsSlice';
+import { addAlert, fetchAlerts } from '../features/alerts/alertsSlice';
+import { fetchRequests } from '../features/requests/requestsSlice';
+import { SOCKET_URL, REALTIME_ENABLED } from './config';
+
+const POLL_INTERVAL_MS = 15000;
 
 let socket = null;
-let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 10;
+let pollTimer = null;
+let removeVisibilityListener = null;
+
+// Components subscribe to this event bus instead of the raw socket. It exists
+// before the connection is made and survives reconnects, and it also carries
+// the events synthesised by the polling fallback, so components behave the same
+// whether or not a WebSocket server is available.
+const listeners = new Map();
+
+const bus = {
+  on(event, handler) {
+    if (!listeners.has(event)) listeners.set(event, new Set());
+    listeners.get(event).add(handler);
+    return bus;
+  },
+  off(event, handler) {
+    listeners.get(event)?.delete(handler);
+    return bus;
+  },
+  emit(event, data) {
+    if (socket?.connected) socket.emit(event, data);
+    return bus;
+  },
+  get connected() {
+    return Boolean(socket?.connected);
+  },
+};
+
+const publish = (event, ...args) => {
+  listeners.get(event)?.forEach((handler) => {
+    try {
+      handler(...args);
+    } catch (error) {
+      console.error(`Error in "${event}" handler:`, error);
+    }
+  });
+};
+
+const notify = (title, options) => {
+  if ('Notification' in window && Notification.permission === 'granted') {
+    try {
+      new Notification(title, options);
+    } catch {
+      // Notifications are best-effort (some mobile browsers throw here)
+    }
+  }
+};
 
 /**
- * Initialize and connect to Socket.IO server
+ * Keep the Redux store fresh without WebSockets by polling the API.
+ * New emergency requests are published on the bus so the UI can announce
+ * them exactly like it does for socket events.
+ */
+const startPolling = (dispatch) => {
+  stopPolling();
+  let knownRequestIds = null;
+
+  const poll = async () => {
+    if (document.hidden || !navigator.onLine) return;
+
+    dispatch(fetchBeds());
+    dispatch(fetchAlerts());
+
+    const result = await dispatch(fetchRequests());
+    const requests = result.payload?.data?.emergencyRequests;
+    if (!Array.isArray(requests)) return;
+
+    const pending = requests.filter((request) => request.status === 'pending');
+    if (knownRequestIds) {
+      pending
+        .filter((request) => !knownRequestIds.has(request._id))
+        .forEach((request) => publish('emergencyRequestCreated', { ...request, requestId: request._id }));
+    }
+    knownRequestIds = new Set(pending.map((request) => request._id));
+  };
+
+  poll();
+  pollTimer = setInterval(poll, POLL_INTERVAL_MS);
+  // Catch up immediately when the tab becomes visible again
+  document.addEventListener('visibilitychange', poll);
+  removeVisibilityListener = () => document.removeEventListener('visibilitychange', poll);
+};
+
+const stopPolling = () => {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+  removeVisibilityListener?.();
+  removeVisibilityListener = null;
+};
+
+/**
+ * Start live updates for an authenticated user: a Socket.IO connection when a
+ * realtime server is configured, API polling otherwise.
  * @param {string} token - JWT authentication token
  * @param {Function} dispatch - Redux dispatch function
- * @returns {Socket} socket instance
  */
 export const connectSocket = (token, dispatch) => {
-  // If socket already exists and is connected, return it
-  if (socket && socket.connected) {
-    console.log('Socket already connected');
-    return socket;
+  if (!REALTIME_ENABLED) {
+    startPolling(dispatch);
+    return bus;
   }
 
-  // Disconnect existing socket if any
   if (socket) {
-    socket.disconnect();
+    if (socket.auth?.token === token) return bus;
+    disconnectSocket();
   }
 
-  console.log('🔍 Connecting socket with token:', {
-    hasToken: !!token,
-    tokenType: typeof token,
-    tokenPreview: token ? `${token.substring(0, 20)}...` : 'none',
-    tokenLength: token?.length
-  });
-
-  // Create new socket connection
-  const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5001';
-  
   socket = io(SOCKET_URL, {
-    auth: {
-      token: token,
-    },
-    transports: ['websocket', 'polling'], // Prefer websocket, fallback to polling
+    auth: { token },
+    transports: ['websocket', 'polling'], // Prefer websocket, fallback to long polling
     reconnection: true,
-    reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
     reconnectionDelay: 1000,
-    reconnectionDelayMax: 5000,
+    reconnectionDelayMax: 10000,
   });
 
-  // Connection event listeners
+  // Forward every server event to the bus
+  socket.onAny((event, ...args) => publish(event, ...args));
+
   socket.on('connect', () => {
-    console.log('✅ Socket connected:', socket.id);
-    reconnectAttempts = 0; // Reset counter on successful connection
+    // Real-time connection is healthy - no need to poll
+    stopPolling();
   });
 
   socket.on('connect_error', (error) => {
-    console.error('❌ Socket connection error:', error.message);
-    reconnectAttempts++;
-    
-    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-      console.error('❌ Max reconnection attempts reached. Please refresh the page.');
-    }
+    console.warn('Socket connection error:', error.message);
+    // Stay up to date while the realtime server is unreachable
+    if (!pollTimer) startPolling(dispatch);
   });
 
   socket.on('disconnect', (reason) => {
-    console.log('🔌 Socket disconnected:', reason);
-    
-    // Auto-reconnect for certain disconnect reasons
     if (reason === 'io server disconnect') {
-      // Server disconnected the socket, attempt to reconnect
-      console.log('🔄 Server disconnected socket, attempting to reconnect...');
       socket.connect();
     }
   });
 
-  socket.on('reconnect', (attemptNumber) => {
-    console.log('🔄 Socket reconnected after', attemptNumber, 'attempts');
-    reconnectAttempts = 0;
-    
-    // Task 2.6: Re-sync data after reconnection
-    if (dispatch) {
-      console.log('🔄 Re-syncing data after reconnection...');
-      dispatch(fetchBeds());
-    }
+  // Re-sync data after a reconnection
+  socket.io.on('reconnect', () => {
+    dispatch(fetchBeds());
+    dispatch(fetchAlerts());
   });
 
-  socket.on('reconnect_error', (error) => {
-    console.error('❌ Socket reconnection error:', error.message);
-  });
+  const updateBed = (data) => {
+    if (data?.bed) dispatch(updateBedInList(data.bed));
+  };
 
-  socket.on('reconnect_failed', () => {
-    console.error('❌ Socket reconnection failed after all attempts');
-  });
+  socket.on('bedStatusChanged', updateBed);
+  socket.on('bedUpdate', updateBed); // legacy event name
+  socket.on('bedCleaningStarted', updateBed);
+  socket.on('bedDischargeTimeUpdated', updateBed);
 
-  // Task 2.6: Listen for bedStatusChanged events (replaces bedUpdate)
-  socket.on('bedStatusChanged', (data) => {
-    console.log('🛏️ Bed status changed:', data);
-    
-    if (dispatch && data.bed) {
-      dispatch(updateBedInList(data.bed));
-    }
-  });
-
-  // Listen for bed update events (legacy support)
-  socket.on('bedUpdate', (data) => {
-    console.log('🛏️ Bed update received (legacy):', data);
-    
-    if (dispatch && data.bed) {
-      dispatch(updateBedInList(data.bed));
-    }
-  });
-
-  // Task 2.6: Listen for bedMaintenanceNeeded events
-  socket.on('bedMaintenanceNeeded', (data) => {
-    console.log('🔧 Bed maintenance needed:', data);
-    
-    if (dispatch && data.bed) {
-      dispatch(updateBedInList(data.bed));
-      
-      // Show browser notification for maintenance alerts
-      if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification('Bed Maintenance Required', {
-          body: `Bed ${data.bed.bedId} in ${data.bed.ward} requires maintenance (${data.cleaningDuration} min)`,
-          icon: '/maintenance-icon.png',
-          tag: `maintenance-${data.bed._id}`
-        });
-      }
-    }
-  });
-
-  // Listen for cleaning started events
-  socket.on('bedCleaningStarted', (data) => {
-    console.log('🧹 Bed cleaning started:', data);
-    
-    if (dispatch && data.bed) {
-      dispatch(updateBedInList(data.bed));
-    }
-  });
-
-  // Listen for cleaning completed events
   socket.on('bedCleaningCompleted', (data) => {
-    console.log('✅ Bed cleaning completed:', data);
-    
-    if (dispatch && data.bed) {
-      dispatch(updateBedInList(data.bed));
-      
-      // Show notification
-      if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification('Cleaning Completed', {
-          body: `Bed ${data.bed.bedId} cleaning completed${data.cleaningLog?.wasOverdue ? ' (Overdue)' : ''}`,
-          icon: '/check-icon.png',
-          tag: `cleaning-complete-${data.bed._id}`
-        });
-      }
+    updateBed(data);
+    if (data?.bed) {
+      notify('Cleaning Completed', {
+        body: `Bed ${data.bed.bedId} cleaning completed${data.cleaningLog?.wasOverdue ? ' (Overdue)' : ''}`,
+        tag: `cleaning-complete-${data.bed._id}`,
+      });
     }
   });
 
-  // Task 2.6: Listen for occupancyAlert events
   socket.on('occupancyAlert', (data) => {
-    console.log('🚨 Occupancy alert received:', data);
-    
-    if (dispatch && data.alert) {
+    if (data?.alert) {
       dispatch(addAlert(data.alert));
-      
-      // Show browser notification
-      if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification('High Occupancy Alert', {
-          body: data.alert.message,
-          icon: '/alert-icon.png',
-          tag: data.alert._id
-        });
-      }
+      notify('High Occupancy Alert', { body: data.alert.message, tag: data.alert._id });
     }
   });
 
-  // Task 2.6: Listen for emergencyRequestCreated events
-  socket.on('emergencyRequestCreated', (data) => {
-    console.log('🚑 Emergency request created:', data);
-    
-    if (dispatch && data.request) {
-      // You can dispatch to an emergencyRequestsSlice if it exists
-      // For now, just show notification
-      if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification('New Emergency Request', {
-          body: `${data.request.reason} - ${data.request.priority} priority`,
-          icon: '/emergency-icon.png',
-          tag: `emergency-${data.request._id}`,
-          requireInteraction: true // Keep notification visible
-        });
-      }
-    }
+  socket.on('alertCreated', () => {
+    dispatch(fetchAlerts());
   });
 
-  // Task 2.6: Listen for emergencyRequestApproved events
+  socket.on('emergencyRequestCreated', () => {
+    dispatch(fetchRequests());
+  });
+
   socket.on('emergencyRequestApproved', (data) => {
-    console.log('✅ Emergency request approved:', data);
-    
-    if (dispatch && data.request) {
-      // Show notification to ER staff
-      if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification('Emergency Request Approved', {
-          body: `Request approved. Bed ${data.allocatedBed?.bedId || 'assigned'} in ${data.request.ward}`,
-          icon: '/success-icon.png',
-          tag: `approved-${data.request._id}`
-        });
-      }
-    }
+    dispatch(fetchRequests());
+    notify('Emergency Request Approved', {
+      body: `Bed request approved for ${data?.ward || 'the requested'} ward`,
+      tag: `approved-${data?.requestId}`,
+    });
   });
 
-  // Task 2.6: Listen for emergencyRequestRejected events
   socket.on('emergencyRequestRejected', (data) => {
-    console.log('❌ Emergency request rejected:', data);
-    
-    if (dispatch && data.request) {
-      // Show notification to ER staff
-      if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification('Emergency Request Rejected', {
-          body: `Reason: ${data.request.rejectionReason || 'No reason provided'}`,
-          icon: '/error-icon.png',
-          tag: `rejected-${data.request._id}`
-        });
-      }
-    }
+    dispatch(fetchRequests());
+    notify('Emergency Request Rejected', {
+      body: `Reason: ${data?.rejectionReason || 'No reason provided'}`,
+      tag: `rejected-${data?.requestId}`,
+    });
   });
 
-  // Listen for general alert created events
-  socket.on('alertCreated', (alert) => {
-    console.log('📢 Alert created:', alert);
-    
-    if (dispatch) {
-      dispatch(addAlert(alert));
-    }
-  });
-
-  // Task 2.6: Listen for alertDismissed events
-  socket.on('alertDismissed', (data) => {
-    console.log('🔕 Alert dismissed:', data);
-    
-    // You can dispatch an action to remove the alert from Redux store
-    // For now, just log it
-  });
-
-  // Optional: Listen for other events
-  socket.on('error', (error) => {
-    console.error('Socket error:', error);
-  });
-
-  return socket;
+  return bus;
 };
 
 /**
- * Disconnect from Socket.IO server
+ * Stop live updates (on logout)
  */
 export const disconnectSocket = () => {
+  stopPolling();
   if (socket) {
-    console.log('🔌 Disconnecting socket...');
-    socket.removeAllListeners(); // Clean up all listeners
+    socket.offAny();
+    socket.removeAllListeners();
     socket.disconnect();
     socket = null;
   }
 };
 
 /**
- * Get current socket instance
- * @returns {Socket|null} socket instance or null
+ * Event bus for live updates. Always defined, so components can subscribe
+ * with `.on()` / `.off()` at any time.
  */
-export const getSocket = () => {
-  return socket;
-};
+export const getSocket = () => bus;
 
 /**
- * Check if socket is connected
- * @returns {boolean} true if connected, false otherwise
+ * Check if a WebSocket connection is currently established
  */
-export const isSocketConnected = () => {
-  return socket && socket.connected;
-};
+export const isSocketConnected = () => bus.connected;
 
 /**
- * Emit a custom event to the server
- * @param {string} eventName - Name of the event
- * @param {any} data - Data to send with the event
+ * Emit a custom event to the server (no-op without a realtime connection)
  */
 export const emitSocketEvent = (eventName, data) => {
-  if (socket && socket.connected) {
-    socket.emit(eventName, data);
-  } else {
-    console.warn('Socket is not connected. Cannot emit event:', eventName);
-  }
+  bus.emit(eventName, data);
 };
 
 export default {

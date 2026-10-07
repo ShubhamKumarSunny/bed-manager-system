@@ -1,7 +1,38 @@
 // backend/controllers/authController.js
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
-const { AppError } = require('../middleware/errorHandler');
+const { getJwtSecret } = require('../config/env');
+
+const signToken = (user) =>
+  jwt.sign(
+    {
+      id: user._id,
+      email: user.email,
+      role: user.role,
+      ward: user.ward,
+      assignedWards: user.assignedWards,
+      department: user.department
+    },
+    getJwtSecret(),
+    { expiresIn: '7d' }
+  );
+
+const publicUser = (user) => ({
+  id: user._id,
+  name: user.name,
+  email: user.email,
+  role: user.role,
+  ward: user.ward,
+  assignedWards: user.assignedWards,
+  department: user.department,
+  profilePicture: user.profilePicture,
+  phone: user.phone,
+  address: user.address,
+  dateOfBirth: user.dateOfBirth,
+  bio: user.bio,
+  isDemo: user.isDemo,
+  createdAt: user.createdAt
+});
 
 /**
  * @desc    Register a new user
@@ -12,20 +43,8 @@ exports.register = async (req, res) => {
   try {
     const { email, password, name, role, ward, assignedWards, department } = req.body;
     
-    // Debug log
-    console.log('📝 Register request body:', { 
-      email, 
-      password: password ? '***' : undefined, 
-      name, 
-      role,
-      ward,
-      assignedWards,
-      department
-    });
-
     // Validate required fields
     if (!email || !password || !name) {
-      console.log('❌ Validation failed: Missing required fields');
       return res.status(400).json({
         success: false,
         message: 'Please provide email, password, and name'
@@ -75,38 +94,13 @@ exports.register = async (req, res) => {
     // Create user (password will be hashed by model pre-save hook)
     const user = await User.create(userData);
 
-    // Generate JWT token
-    const token = jwt.sign(
-      { 
-        id: user._id, 
-        email: user.email, 
-        role: user.role,
-        ward: user.ward,
-        assignedWards: user.assignedWards,
-        department: user.department
-      },
-      process.env.JWT_SECRET || 'your-secret-key',
-      { expiresIn: '7d' }
-    );
+    const token = signToken(user);
 
     res.status(201).json({
       success: true,
       message: 'User registered successfully',
       data: {
-        user: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          ward: user.ward,
-          assignedWards: user.assignedWards,
-          department: user.department,
-          profilePicture: user.profilePicture,
-          phone: user.phone,
-          address: user.address,
-          dateOfBirth: user.dateOfBirth,
-          bio: user.bio
-        },
+        user: publicUser(user),
         token
       }
     });
@@ -165,38 +159,13 @@ exports.login = async (req, res) => {
       });
     }
 
-    // Generate JWT token
-    const token = jwt.sign(
-      { 
-        id: user._id, 
-        email: user.email, 
-        role: user.role,
-        ward: user.ward,
-        assignedWards: user.assignedWards,
-        department: user.department
-      },
-      process.env.JWT_SECRET || 'your-secret-key',
-      { expiresIn: '7d' }
-    );
+    const token = signToken(user);
 
     res.status(200).json({
       success: true,
       message: 'Login successful',
       data: {
-        user: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          ward: user.ward,
-          assignedWards: user.assignedWards,
-          department: user.department,
-          profilePicture: user.profilePicture,
-          phone: user.phone,
-          address: user.address,
-          dateOfBirth: user.dateOfBirth,
-          bio: user.bio
-        },
+        user: publicUser(user),
         token
       }
     });
@@ -230,16 +199,7 @@ exports.getMe = async (req, res) => {
       success: true,
       message: 'Current user fetched successfully',
       data: {
-        user: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          ward: user.ward,
-          assignedWards: user.assignedWards,
-          department: user.department,
-          createdAt: user.createdAt
-        }
+        user: publicUser(user)
       }
     });
   } catch (error) {
@@ -260,6 +220,13 @@ exports.getMe = async (req, res) => {
 exports.deleteAccount = async (req, res) => {
   try {
     const userId = req.user.id;
+
+    if (req.user.isDemo) {
+      return res.status(403).json({
+        success: false,
+        message: 'Shared demo accounts cannot be deleted. Sign up for your own account to try this.'
+      });
+    }
 
     // Find and delete the user
     const user = await User.findByIdAndDelete(userId);

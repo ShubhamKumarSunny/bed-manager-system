@@ -4,7 +4,6 @@ import { fetchRequests, approveRequest, rejectRequest } from '@/features/request
 import { AlertOctagon, Clock, CheckCircle, XCircle } from 'lucide-react';
 import { getSocket } from '@/services/socketService';
 import Toast from '@/components/ui/Toast';
-import api from '@/services/api';
 
 const EmergencyRequestsQueue = ({ ward, onApprovalSuccess }) => {
   const dispatch = useDispatch();
@@ -26,7 +25,7 @@ const EmergencyRequestsQueue = ({ ward, onApprovalSuccess }) => {
   useEffect(() => {
     const socket = getSocket();
 
-    if (socket && socket.connected) {
+    if (socket) {
       const handleNewRequest = async (data) => {
         const managerWard = ward || currentUser?.ward;
 
@@ -49,11 +48,6 @@ const EmergencyRequestsQueue = ({ ward, onApprovalSuccess }) => {
 
             oscillator.start(audioContext.currentTime);
             oscillator.stop(audioContext.currentTime + 0.5);
-
-            // Try to play mp3 if available
-            const audio = new Audio('/notification.mp3');
-            audio.volume = 0.5;
-            audio.play().catch(() => { });
           };
 
           playNotificationSound();
@@ -65,24 +59,10 @@ const EmergencyRequestsQueue = ({ ward, onApprovalSuccess }) => {
             message: `Priority: ${data.priority.toUpperCase()} - ${data.patientName} needs ${data.ward} bed from ${data.location}`,
           });
 
-          // Create an alert in the Alerts & Notifications panel
-          try {
-            await api.post('/alerts', {
-              type: 'emergency_request',
-              message: `New emergency request: ${data.patientName} (${data.priority.toUpperCase()}) needs ${data.ward} bed`,
-              severity: data.priority === 'critical' ? 'critical' : data.priority === 'high' ? 'high' : 'medium',
-              ward: data.ward,
-              targetRole: 'manager'
-            });
-          } catch (error) {
-            // Silently fail - alert creation is not critical
-          }
-
           // Show browser notification if permission granted
           if ('Notification' in window && Notification.permission === 'granted') {
             new Notification('🚨 New Emergency Request', {
               body: `Priority: ${data.priority.toUpperCase()} - ${data.patientName} needs ${data.ward} bed`,
-              icon: '/hospital-icon.png',
               tag: `emergency-${data.requestId}`,
               requireInteraction: true
             });

@@ -47,14 +47,14 @@ const requestsSlice = createSlice({
   extraReducers: (builder) => {
     builder
       .addCase(fetchRequests.pending, (state) => {
-        state.status = 'loading';
+        // Background refreshes keep showing the current list instead of a spinner
+        if (state.status !== 'succeeded') state.status = 'loading';
       })
       .addCase(fetchRequests.fulfilled, (state, action) => {
         state.status = 'succeeded';
         // Handle backend response structure: { success, count, data: { emergencyRequests } }
         const requests = action.payload?.data?.emergencyRequests || action.payload?.emergencyRequests || action.payload || [];
         state.requests = Array.isArray(requests) ? requests : [];
-        console.log('✅ Emergency requests loaded:', state.requests.length);
       })
       .addCase(fetchRequests.rejected, (state, action) => {
         state.status = 'failed';

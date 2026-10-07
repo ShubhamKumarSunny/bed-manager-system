@@ -1,15 +1,12 @@
 // backend/controllers/profileController.js
+const mongoose = require('mongoose');
 const User = require('../models/User');
-const path = require('path');
-const fs = require('fs').promises;
 
 // @desc    Get current user profile
 // @route   GET /api/profile
 // @access  Private
 exports.getProfile = async (req, res) => {
   try {
-    console.log('GET /api/profile - User ID:', req.user?._id);
-    
     if (!req.user || !req.user._id) {
       return res.status(401).json({
         success: false,
@@ -27,7 +24,6 @@ exports.getProfile = async (req, res) => {
       });
     }
 
-    console.log('Profile fetched successfully for user:', user.email);
     res.status(200).json({
       success: true,
       data: user
@@ -47,12 +43,15 @@ exports.getProfile = async (req, res) => {
 // @access  Private
 exports.updateProfile = async (req, res) => {
   try {
-    console.log('PUT /api/profile - User ID:', req.user?._id);
-    console.log('Request body:', req.body);
-    console.log('Request file:', req.file);
-    
     const { name, phone, address, dateOfBirth, bio, department } = req.body;
-    
+
+    if (req.user.isDemo) {
+      return res.status(403).json({
+        success: false,
+        message: 'Shared demo accounts are read-only. Sign up for your own account to edit a profile.'
+      });
+    }
+
     if (!req.user || !req.user._id) {
       return res.status(401).json({
         success: false,
@@ -70,9 +69,6 @@ exports.updateProfile = async (req, res) => {
       });
     }
 
-    console.log('Updating user:', user.email);
-    console.log('Before update:', { name: user.name, phone: user.phone, address: user.address });
-
     // Update allowed fields
     if (name && name.trim()) user.name = name.trim();
     if (phone !== undefined) user.phone = phone || null;
@@ -80,31 +76,18 @@ exports.updateProfile = async (req, res) => {
     if (dateOfBirth !== undefined) user.dateOfBirth = dateOfBirth || null;
     if (bio !== undefined) user.bio = bio || null;
     if (department !== undefined) user.department = department || null;
-    
-    console.log('After update:', { name: user.name, phone: user.phone, address: user.address });
 
-    // Handle profile picture upload
+    // Handle profile picture upload (kept in MongoDB, served via /api/profile/picture/:userId)
     if (req.file) {
-      // Delete old profile picture if exists
-      if (user.profilePicture) {
-        const oldImagePath = path.join(__dirname, '..', user.profilePicture);
-        try {
-          await fs.unlink(oldImagePath);
-        } catch (err) {
-          console.log('Error deleting old profile picture:', err.message);
-        }
-      }
-      
-      // Save new profile picture path
-      user.profilePicture = `/uploads/profiles/${req.file.filename}`;
+      user.profilePictureData = req.file.buffer;
+      user.profilePictureType = req.file.mimetype;
+      user.profilePicture = `/api/profile/picture/${user._id}?v=${Date.now()}`;
     }
 
     await user.save();
-    console.log('User saved successfully');
 
     // Return user without password
     const updatedUser = await User.findById(user._id).select('-password');
-    console.log('Returning updated user:', updatedUser.email);
 
     res.status(200).json({
       success: true,
@@ -113,6 +96,12 @@ exports.updateProfile = async (req, res) => {
     });
   } catch (error) {
     console.error('Update profile error:', error);
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({
+        success: false,
+        message: Object.values(error.errors).map(e => e.message).join(', ')
+      });
+    }
     res.status(500).json({
       success: false,
       message: 'Failed to update profile',
@@ -126,6 +115,13 @@ exports.updateProfile = async (req, res) => {
 // @access  Private
 exports.deleteProfilePicture = async (req, res) => {
   try {
+    if (req.user.isDemo) {
+      return res.status(403).json({
+        success: false,
+        message: 'Shared demo accounts are read-only. Sign up for your own account to edit a profile.'
+      });
+    }
+
     const user = await User.findById(req.user._id);
     
     if (!user) {
@@ -142,16 +138,9 @@ exports.deleteProfilePicture = async (req, res) => {
       });
     }
 
-    // Delete the file
-    const imagePath = path.join(__dirname, '..', user.profilePicture);
-    try {
-      await fs.unlink(imagePath);
-    } catch (err) {
-      console.log('Error deleting profile picture file:', err.message);
-    }
-
-    // Update user
     user.profilePicture = null;
+    user.profilePictureData = undefined;
+    user.profilePictureType = undefined;
     await user.save();
 
     const updatedUser = await User.findById(user._id).select('-password');
@@ -168,5 +157,31 @@ exports.deleteProfilePicture = async (req, res) => {
       message: 'Failed to delete profile picture',
       error: error.message
     });
+  }
+};
+
+// @desc    Serve a user's profile picture
+// @route   GET /api/profile/picture/:userId
+// @access  Public (image URLs are used directly in <img> tags)
+exports.getProfilePicture = async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.userId)) {
+      return res.status(404).end();
+    }
+
+    const user = await User.findById(req.params.userId).select('+profilePictureData +profilePictureType');
+
+    if (!user || !user.profilePictureData) {
+      return res.status(404).end();
+    }
+
+    res.setHeader('Content-Type', user.profilePictureType || 'image/jpeg');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    // URLs carry a ?v= version, so the image itself can be cached for a long time
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.send(user.profilePictureData);
+  } catch (error) {
+    console.error('Get profile picture error:', error);
+    res.status(500).end();
   }
 };

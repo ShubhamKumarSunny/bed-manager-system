@@ -37,7 +37,7 @@ const ManagerDashboard = () => {
   // Periodic backend health check
   useEffect(() => {
     checkBackendConnection();
-    const interval = setInterval(checkBackendConnection, 5000);
+    const interval = setInterval(checkBackendConnection, 30000);
     return () => clearInterval(interval);
   }, [checkBackendConnection]);
 

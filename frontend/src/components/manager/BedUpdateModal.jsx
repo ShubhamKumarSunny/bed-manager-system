@@ -7,7 +7,7 @@ const BedUpdateModal = ({ bed, isOpen, onClose, onSuccess, emergencyPatientData 
   const [status, setStatus] = useState(bed?.status || 'available');
   const [patientName, setPatientName] = useState(bed?.patientName || '');
   const [patientId, setPatientId] = useState(bed?.patientId || '');
-  const [cleaningDuration, setCleaningDuration] = useState('45');
+  const [, setCleaningDuration] = useState('45');
   const [notes, setNotes] = useState(bed?.notes || '');
   const [estimatedDischargeTime, setEstimatedDischargeTime] = useState('');
   const [dischargeNotes, setDischargeNotes] = useState(bed?.dischargeNotes || '');
@@ -611,7 +611,6 @@ const BedUpdateModal = ({ bed, isOpen, onClose, onSuccess, emergencyPatientData 
                                           type="button"
                                           onClick={() => {
                                             const currentTime = estimatedDischargeTime.split('T')[1] || '12:00';
-                                            const [currentHour] = currentTime.split(':');
                                             const [currentHour24] = currentTime.split(':').map(Number);
                                             const period = currentHour24 >= 12 ? 'PM' : 'AM';
                                             const hour12 = currentHour24 === 0 ? 12 : currentHour24 > 12 ? currentHour24 - 12 : currentHour24;

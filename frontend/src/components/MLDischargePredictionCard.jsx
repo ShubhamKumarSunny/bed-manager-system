@@ -13,7 +13,7 @@ import { TrendingUp, Clock, Activity } from 'lucide-react';
  * @param {string} predictions[].estimated_discharge_time - ISO datetime string
  * @param {number} maxDisplay - Maximum number of predictions to show (default: 5)
  */
-const MLDischargePredictionCard = ({ predictions = [], maxDisplay = 5 }) => {
+const MLDischargePredictionCard = ({ predictions = [], maxDisplay = 5, sourceLabel = 'ML Model' }) => {
   // Filter out invalid predictions and limit display
   const validPredictions = predictions
     .filter(p => p && p.predicted_hours_until_discharge != null)
@@ -80,7 +80,7 @@ const MLDischargePredictionCard = ({ predictions = [], maxDisplay = 5 }) => {
             Predicted Discharges
           </CardTitle>
           <Badge className="bg-purple-500/20 text-purple-300 border-purple-500/40">
-            ML Model
+            {sourceLabel}
           </Badge>
         </div>
         <p className="text-xs text-slate-400 mt-1">

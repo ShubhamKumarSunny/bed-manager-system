@@ -51,11 +51,11 @@ const CleaningQueuePanel = ({ ward }) => {
       return;
     }
 
-    const handleCleaningStarted = (data) => {
+    const handleCleaningStarted = () => {
       fetchCleaningQueue();
     };
 
-    const handleCleaningCompleted = (data) => {
+    const handleCleaningCompleted = () => {
       fetchCleaningQueue();
     };
 

@@ -23,10 +23,10 @@ const {
 
 // Protected read routes (requires JWT authentication + role-based filtering)
 router.get('/', protect, canReadBeds, validateBedQuery, getAllBeds);
-router.get('/occupied', protect, getOccupiedBeds); // Task 2.5: Get all occupied beds
+router.get('/occupied', protect, authorize('manager', 'hospital_admin'), getOccupiedBeds); // Task 2.5: Get all occupied beds
 router.get('/cleaning-queue', protect, authorize('manager', 'hospital_admin', 'ward_staff'), getCleaningQueue); // Task 2.5b: Get cleaning queue
 router.get('/:id', protect, validateObjectId, getBedById);
-router.get('/:id/occupant-history', protect, getOccupantHistory); // Task 2.5: Get bed occupancy history
+router.get('/:id/occupant-history', protect, authorize('manager', 'hospital_admin'), getOccupantHistory); // Task 2.5: Get bed occupancy history
 
 // Protected write routes (requires JWT authentication + role-based guards)
 router.patch('/:id/status', protect, canUpdateBedStatus, validateUpdateBedStatus, updateBedStatus);

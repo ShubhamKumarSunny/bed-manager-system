@@ -4,6 +4,13 @@ import { fetchAlerts, dismissAlert } from '@/features/alerts/alertsSlice';
 import { AlertTriangle, AlertCircle, Info, CheckCircle, X } from 'lucide-react';
 import { getSocket } from '@/services/socketService';
 
+const ALERT_LABELS = {
+  occupancy_high: 'High Occupancy',
+  bed_emergency: 'Bed Emergency',
+  maintenance_needed: 'Maintenance Needed',
+  request_pending: 'Emergency Request Pending',
+};
+
 const AlertNotificationPanel = ({ ward }) => {
   const dispatch = useDispatch();
   const { alerts, status } = useSelector((state) => state.alerts);
@@ -148,7 +155,7 @@ const AlertNotificationPanel = ({ ward }) => {
                 <div className="flex-1 text-left">
                   <div className="flex items-start justify-between gap-2">
                     <h3 className={`font-semibold ${config.color}`}>
-                      {alert.type || 'Alert'}
+                      {ALERT_LABELS[alert.type] || 'Alert'}
                     </h3>
                     <button
                       onClick={() => handleDismiss(alert._id)}

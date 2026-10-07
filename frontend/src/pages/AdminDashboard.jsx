@@ -28,7 +28,7 @@ const AdminDashboard = () => {
   // Periodic backend health check
   useEffect(() => {
     checkBackendConnection();
-    const interval = setInterval(checkBackendConnection, 5000);
+    const interval = setInterval(checkBackendConnection, 30000);
     return () => clearInterval(interval);
   }, [checkBackendConnection]);
 
@@ -57,7 +57,7 @@ const AdminDashboard = () => {
         <div className="mb-6 bg-neutral-900 border border-neutral-700 rounded-lg p-1 flex gap-1">
           <button
             onClick={() => setActiveTab('overview')}
-            className={`flex-1 px-6 py-3 rounded-md font-semibold transition-colors ${
+            className={`flex-1 px-2 sm:px-6 py-3 rounded-md text-sm sm:text-base font-semibold transition-colors ${
               activeTab === 'overview'
                 ? 'bg-blue-600 text-white'
                 : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
@@ -67,7 +67,7 @@ const AdminDashboard = () => {
           </button>
           <button
             onClick={() => setActiveTab('trends')}
-            className={`flex-1 px-6 py-3 rounded-md font-semibold transition-colors ${
+            className={`flex-1 px-2 sm:px-6 py-3 rounded-md text-sm sm:text-base font-semibold transition-colors ${
               activeTab === 'trends'
                 ? 'bg-blue-600 text-white'
                 : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
@@ -77,7 +77,7 @@ const AdminDashboard = () => {
           </button>
           <button
             onClick={() => setActiveTab('forecasting')}
-            className={`flex-1 px-6 py-3 rounded-md font-semibold transition-colors ${
+            className={`flex-1 px-2 sm:px-6 py-3 rounded-md text-sm sm:text-base font-semibold transition-colors ${
               activeTab === 'forecasting'
                 ? 'bg-blue-600 text-white'
                 : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
@@ -87,7 +87,7 @@ const AdminDashboard = () => {
           </button>
           <button
             onClick={() => setActiveTab('reports')}
-            className={`flex-1 px-6 py-3 rounded-md font-semibold transition-colors ${
+            className={`flex-1 px-2 sm:px-6 py-3 rounded-md text-sm sm:text-base font-semibold transition-colors ${
               activeTab === 'reports'
                 ? 'bg-blue-600 text-white'
                 : 'text-neutral-400 hover:text-white hover:bg-neutral-800'

@@ -71,9 +71,19 @@ const userSchema = new mongoose.Schema(
       trim: true,
       maxlength: [100, 'Department name cannot exceed 100 characters']
     },
+    // Public URL of the profile picture (served by GET /api/profile/picture/:userId)
     profilePicture: {
       type: String,
       default: null
+    },
+    // Image bytes live in MongoDB so uploads work on read-only filesystems
+    profilePictureData: {
+      type: Buffer,
+      select: false
+    },
+    profilePictureType: {
+      type: String,
+      select: false
     },
     phone: {
       type: String,
@@ -98,6 +108,11 @@ const userSchema = new mongoose.Schema(
       type: String,
       trim: true,
       maxlength: [1000, 'Bio cannot exceed 1000 characters']
+    },
+    // Shared demo accounts created by the seed script: read-only profile, cannot be deleted
+    isDemo: {
+      type: Boolean,
+      default: false
     }
   },
   {

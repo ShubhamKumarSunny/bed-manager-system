@@ -8,7 +8,7 @@ const ForecastingPanel = ({ ward }) => {
   const [forecastData, setForecastData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [bedsWithDischargeTime, setBedsWithDischargeTime] = useState([]);
+  const [, setBedsWithDischargeTime] = useState([]);
   const [lastRefresh, setLastRefresh] = useState(new Date());
   const [secondsAgo, setSecondsAgo] = useState(0);
   const socket = useSocket();
@@ -16,12 +16,11 @@ const ForecastingPanel = ({ ward }) => {
   useEffect(() => {
     fetchForecastData();
     fetchBedsWithDischargeTime();
-    // Auto-refresh every 10 seconds for real-time data
+    // Auto-refresh every 30 seconds (socket events refresh it sooner)
     const interval = setInterval(() => {
-      console.log('🔄 Auto-refreshing forecasting data (10s interval)...');
       fetchForecastData();
       fetchBedsWithDischargeTime();
-    }, 10 * 1000); // 10 seconds
+    }, 30 * 1000); // 30 seconds
     return () => clearInterval(interval);
   }, [ward]);
 
@@ -422,7 +421,6 @@ const ForecastingPanel = ({ ward }) => {
             const confirmedDischarges = dischargeDetails.filter(d => d.isManuallySet);
             const estimatedDischarges = dischargeDetails.filter(d => !d.isManuallySet);
 
-            const now = new Date();
             const maxDischarges = Math.max(
               ...timelineBuckets.map(b => b.expectedDischarges || 0),
               5

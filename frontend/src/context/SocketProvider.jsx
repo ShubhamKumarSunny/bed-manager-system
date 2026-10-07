@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useEffect, useRef } from 'react';
+/* eslint-disable react-refresh/only-export-components */
+import React, { createContext, useContext, useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectAuthToken, selectIsAuthenticated } from '../features/auth/authSlice';
 import { connectSocket, disconnectSocket, getSocket } from '../services/socketService';
@@ -7,12 +8,12 @@ import { connectSocket, disconnectSocket, getSocket } from '../services/socketSe
 const SocketContext = createContext(null);
 
 /**
- * Custom hook to access socket instance
- * @returns {Socket|null} socket instance
+ * Custom hook to access the live-update event bus
+ * @returns {{on: Function, off: Function, emit: Function, connected: boolean}}
  */
 export const useSocket = () => {
   const context = useContext(SocketContext);
-  if (context === undefined) {
+  if (context === null) {
     throw new Error('useSocket must be used within a SocketProvider');
   }
   return context;
@@ -20,52 +21,22 @@ export const useSocket = () => {
 
 /**
  * Socket Provider Component
- * Manages socket lifecycle based on authentication state
+ * Manages the live-update lifecycle based on authentication state
  */
 export const SocketProvider = ({ children }) => {
   const dispatch = useDispatch();
   const token = useSelector(selectAuthToken);
   const isAuthenticated = useSelector(selectIsAuthenticated);
-  const socketRef = useRef(null);
 
   useEffect(() => {
-    // Get token from Redux or fallback to localStorage
-    const localToken = localStorage.getItem('authToken');
-    const actualToken = token || (localToken !== 'undefined' && localToken !== 'null' ? localToken : null);
-    
-    console.log('🔍 SocketProvider state:', {
-      isAuthenticated,
-      hasReduxToken: !!token,
-      hasLocalStorageToken: !!localStorage.getItem('authToken'),
-      localTokenValue: localToken,
-      actualToken: actualToken ? `${actualToken.substring(0, 20)}...` : 'none'
-    });
-    
-    // Connect socket when user is authenticated and has valid token
-    if (isAuthenticated && actualToken) {
-      console.log('🔌 Initializing socket connection...');
-      socketRef.current = connectSocket(actualToken, dispatch);
-    } else {
-      // Disconnect socket when user logs out or no valid token
-      if (socketRef.current) {
-        console.log('🔌 User logged out, disconnecting socket...');
-        disconnectSocket();
-        socketRef.current = null;
-      }
-    }
+    if (!isAuthenticated || !token) return undefined;
 
-    // Cleanup on unmount
-    return () => {
-      if (socketRef.current) {
-        disconnectSocket();
-        socketRef.current = null;
-      }
-    };
+    connectSocket(token, dispatch);
+    return () => disconnectSocket();
   }, [isAuthenticated, token, dispatch]);
 
-  // Provide socket instance through context
   return (
-    <SocketContext.Provider value={socketRef.current}>
+    <SocketContext.Provider value={getSocket()}>
       {children}
     </SocketContext.Provider>
   );

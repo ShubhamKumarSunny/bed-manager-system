@@ -28,34 +28,19 @@ exports.getOccupancySummary = async (req, res) => {
     // Calculate occupancy percentage
     const occupancyPercentage = totalBeds > 0 ? Math.round((occupied / totalBeds) * 100) : 0;
 
-    // Get occupancy logs from last week to calculate historical average
-    const oneWeekLogs = await OccupancyLog.find({
-      timestamp: { $gte: oneWeekAgo, $lte: now },
-      statusChange: { $in: ['assigned', 'released'] }
-    }).lean();
+    // Occupancy a week ago = occupancy now minus the net admissions since then
+    const weekFilter = { timestamp: { $gte: oneWeekAgo, $lte: now } };
+    const [assignedLastWeek, releasedLastWeek] = await Promise.all([
+      OccupancyLog.countDocuments({ ...weekFilter, statusChange: 'assigned' }),
+      OccupancyLog.countDocuments({ ...weekFilter, statusChange: 'released' })
+    ]);
 
-    // Count assigned vs released in the last week
-    const assignedLastWeek = oneWeekLogs.filter(log => log.statusChange === 'assigned').length;
-    const releasedLastWeek = oneWeekLogs.filter(log => log.statusChange === 'released').length;
-    
-    // Get data from two weeks ago for comparison
-    const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
-    const twoWeekLogs = await OccupancyLog.find({
-      timestamp: { $gte: twoWeeksAgo, $lt: oneWeekAgo },
-      statusChange: { $in: ['assigned', 'released'] }
-    }).lean();
-
-    const assignedTwoWeeksAgo = twoWeekLogs.filter(log => log.statusChange === 'assigned').length;
-    const releasedTwoWeeksAgo = twoWeekLogs.filter(log => log.statusChange === 'released').length;
-
-    // Calculate net change (assigned - released)
     const netChangeLastWeek = assignedLastWeek - releasedLastWeek;
-    const netChangeTwoWeeksAgo = assignedTwoWeeksAgo - releasedTwoWeeksAgo;
-    
-    // Calculate week-over-week changes
-    const occupiedChange = netChangeLastWeek - netChangeTwoWeeksAgo;
+
+    // Week-over-week changes
+    const occupiedChange = netChangeLastWeek;
     const availableChange = -occupiedChange; // Available moves opposite to occupied
-    
+
     // Calculate occupancy rate change
     const historicalOccupancyRate = totalBeds > 0 
       ? Math.round(((occupied - netChangeLastWeek) / totalBeds) * 100) 
@@ -434,7 +419,7 @@ exports.getForecasting = async (req, res) => {
     // Apply ward filter for managers
     const bedFilter = { status: 'occupied', ...wardFilter };
     const occupiedBeds = await Bed.find(bedFilter)
-      .select('bedId ward patientName patientId updatedAt estimatedDischargeTime')
+      .select('_id bedId ward patientName patientId updatedAt estimatedDischargeTime')
       .lean();
 
     // Count total beds (filtered by ward for managers)
@@ -464,8 +449,15 @@ exports.getForecasting = async (req, res) => {
       }));
     }
     
+    // A patient's admission time is the latest "assigned" log of their bed
+    const admissionLogs = await OccupancyLog.aggregate([
+      { $match: { bedId: { $in: occupiedBeds.map(bed => bed._id) }, statusChange: 'assigned' } },
+      { $group: { _id: '$bedId', admittedAt: { $max: '$timestamp' } } }
+    ]);
+    const admittedAt = new Map(admissionLogs.map(a => [String(a._id), a.admittedAt]));
+
     const expectedDischargesList = occupiedBeds.map(bed => {
-      const admissionTime = bed.updatedAt;
+      const admissionTime = admittedAt.get(String(bed._id)) || bed.updatedAt;
       let expectedDischargeTime;
       let isManuallySet = false;
 

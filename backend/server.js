@@ -1,164 +1,49 @@
-// // backend/server.js
-// require('dotenv').config();
-// const express = require('express');
-
-// const connectDB = require('./config/db');   // safe helper (skips connect if MONGO_URI empty)
-// const healthRouter = require('./routes/health');
-
-// const app = express();
-
-// app.use(express.json());
-// app.use('/api/health', healthRouter);
-
-// const PORT = process.env.PORT || 5000;
-
-// connectDB()
-//   .then(() => {
-//     app.listen(PORT, () => {
-//       console.log(`Backend: listening on port ${PORT}`);
-//     });
-//   })
-//   .catch((err) => {
-//     console.error('Backend failed to start (db connect error):', err);
-//     process.exit(1);
-//   });
-
-// module.exports = app;
-require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
+// backend/server.js
+// Long-running entry point (local development, Render, Railway, a VM...).
+// Adds what a serverless function cannot provide: Socket.IO and cron jobs.
+require('dotenv').config({ quiet: true });
 const http = require('http');
-const socketIO = require('socket.io');
+const { Server } = require('socket.io');
+const mongoose = require('mongoose');
+const app = require('./app');
 const connectDB = require('./config/db');
-const healthRouter = require('./routes/health');
-const authRoutes = require('./routes/authRoutes');
-const bedRoutes = require('./routes/bedRoutes');
-const logRoutes = require('./routes/logRoutes');
-const analyticsRoutes = require('./routes/analyticsRoutes');
-const emergencyRequestRoutes = require('./routes/emergencyRequestRoutes');
-const alertRoutes = require('./routes/alertRoutes');
-const reportRoutes = require('./routes/reportRoutes');
 const initializeSocket = require('./socketHandler');
-const { notFound, errorHandler } = require('./middleware/errorHandler');
 const scheduledReportService = require('./services/scheduledReportService');
 
-const app = express();
 const server = http.createServer(app);
-const io = socketIO(server, {
+const io = new Server(server, {
   cors: {
-    origin: '*',
+    origin: true,
     methods: ['GET', 'POST']
   }
 });
 
-// Enable CORS for all routes - Allow both localhost and 127.0.0.1
-const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:5174',
-  'http://localhost:5175',
-  'http://127.0.0.1:5173',
-  'http://127.0.0.1:5174',
-  'http://127.0.0.1:5175',
-  'http://localhost:3000',
-  'http://127.0.0.1:3000',
-  process.env.FRONTEND_URL
-].filter(Boolean);
-
-app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like Postman, mobile apps, curl)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      console.log('⚠️ CORS - Origin not in allowed list:', origin);
-      // Return false instead of Error to avoid 500 status
-      callback(null, false);
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  preflightContinue: false,
-  optionsSuccessStatus: 204
-}));
-
-app.use(express.json());
-
-// Make io available to routes via req
-app.use((req, res, next) => {
-  req.io = io;
-  next();
-});
-
-// Serve static files for uploads
-app.use('/uploads', express.static('uploads'));
-
-app.use('/api/health', healthRouter);
-app.use('/api/auth', authRoutes);
-app.use('/api/beds', bedRoutes);
-app.use('/api/logs', logRoutes);
-app.use('/api/analytics', analyticsRoutes);
-app.use('/api/emergency-requests', emergencyRequestRoutes);
-app.use('/api/alerts', alertRoutes);
-app.use('/api/reports', reportRoutes);
-app.use('/api/profile', require('./routes/profileRoutes'));
-
-// Initialize socket connections
+app.set('io', io);
 initializeSocket(io);
 
-// Initialize scheduled reports
-scheduledReportService.initialize();
+const PORT = process.env.PORT || 5001;
 
-// Test endpoint to broadcast dummy event
-app.get('/api/test/broadcast', (req, res) => {
-  const testData = {
-    type: 'test',
-    message: 'This is a dummy broadcast event',
-    timestamp: new Date(),
-    data: {
-      bedId: 'BED-001',
-      status: 'occupied',
-      occupancy: 95
-    }
-  };
-  
-  io.emit('testBroadcast', testData);
-  console.log('Test broadcast sent:', testData);
-  
-  res.json({
-    success: true,
-    message: 'Dummy event broadcast to all connected clients',
-    broadcastData: testData
+connectDB()
+  .then(() => {
+    scheduledReportService.initialize();
+    server.listen(PORT, () => console.log(`Backend: listening on port ${PORT}`));
+  })
+  .catch((err) => {
+    console.error('Backend failed to start:', err.message || err);
+    process.exit(1);
   });
-});
 
-// Error handling middlewares (must be last)
-app.use(notFound);
-app.use(errorHandler);
-
-const PORT = process.env.PORT || 5000;
-
-connectDB().then(() => {
-  server.listen(PORT, () => console.log(`Backend: listening on port ${PORT}`));
-});
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down gracefully...');
+const shutdown = (signal) => {
+  console.log(`${signal} received, shutting down gracefully...`);
   scheduledReportService.shutdown();
-  server.close(() => {
-    console.log('Server closed');
+  io.close();
+  server.close(async () => {
+    await mongoose.connection.close().catch(() => {});
     process.exit(0);
   });
-});
+  // Don't hang forever on open keep-alive connections
+  setTimeout(() => process.exit(0), 5000).unref();
+};
 
-process.on('SIGINT', () => {
-  console.log('SIGINT received, shutting down gracefully...');
-  scheduledReportService.shutdown();
-  server.close(() => {
-    console.log('Server closed');
-    process.exit(0);
-  });
-});
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

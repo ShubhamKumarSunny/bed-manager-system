@@ -12,11 +12,11 @@ const {
   getWardUtilization,
   getPeakDemandAnalysis
 } = require('../controllers/analyticsController');
-const { validateObjectId } = require('../middleware/validators');
+const { getOccupancyForecast, getOccupancyRateHistory } = require('../controllers/forecastController');
 const { protect, authorize } = require('../middleware/authMiddleware');
 
-// Public analytics routes (no authentication required for MVP)
-// TODO: Add protect middleware when role-based analytics is needed
+// All analytics routes require an authenticated user
+router.use(protect);
 
 /**
  * GET /api/analytics/occupancy-summary
@@ -49,14 +49,28 @@ router.get('/occupancy-trends', getOccupancyTrends);
  * Get forecasting data - predicted discharges and capacity insights
  * Protected route - managers see only their ward, admins see all
  */
-router.get('/forecasting', protect, getForecasting);
+router.get('/forecasting', getForecasting);
+
+/**
+ * GET /api/analytics/occupancy-forecast
+ * Per-bed discharge/cleaning predictions and a day-by-day occupancy projection
+ * Query params: mode (predicted|manager)
+ */
+router.get('/occupancy-forecast', getOccupancyForecast);
+
+/**
+ * GET /api/analytics/occupancy-rate-history
+ * Historical occupancy rate reconstructed from admission/discharge logs
+ * Query params: range (7days|30days|90days), ward
+ */
+router.get('/occupancy-rate-history', getOccupancyRateHistory);
 
 /**
  * GET /api/analytics/cleaning-performance
  * Get cleaning performance analytics
  * Task 2.5b: Cleaning duration tracking and analytics
  */
-router.get('/cleaning-performance', protect, authorize('manager', 'hospital_admin'), getCleaningPerformance);
+router.get('/cleaning-performance', authorize('manager', 'hospital_admin'), getCleaningPerformance);
 
 /**
  * GET /api/analytics/occupancy-history
