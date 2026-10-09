@@ -35,12 +35,13 @@ Real-time hospital bed management. Bed Manager gives every role on the hospital 
 ## Project structure
 
 ```
-api/            Vercel serverless entry point (wraps the Express app)
-backend/        Express API, Socket.IO server, Mongoose models, seed script
-frontend/       React single-page app
-ml-service/     Optional FastAPI microservice with trained prediction models
-docs/           API notes and screenshots
-vercel.json     Build, routing and function configuration for Vercel
+api/                 Vercel serverless entry point (wraps the Express app)
+backend/             Express API, Socket.IO server, Mongoose models, seed script
+frontend/            React single-page app
+ml-service/          Optional FastAPI microservice with trained prediction models
+docs/                API notes and screenshots
+docker-compose.yml   MongoDB, API and ML service for local development
+vercel.json          Build, routing and function configuration for Vercel
 ```
 
 `backend/app.js` exports the Express app without starting a server. It is used in two ways:
@@ -81,6 +82,25 @@ npm run dev:frontend      # in a second terminal
 ```
 
 The Vite dev server proxies `/api` and `/socket.io` to the backend, so the frontend needs no environment variables in development.
+
+### With Docker
+
+`docker-compose.yml` runs MongoDB, the API and the ML service together, so only the frontend runs on your machine:
+
+```bash
+docker compose up --build
+docker compose exec backend npm run seed      # load the demo data, once
+npm run dev --prefix frontend                 # http://localhost:5173
+```
+
+The ML service starts without trained models, and until it has them the API uses its statistical estimates. To train the models on the seeded data and serve real predictions:
+
+```bash
+docker compose exec ml-service sh -c "python train/train_discharge.py && python train/train_bed_availability.py && python train/train_cleaning_duration.py"
+docker compose restart ml-service
+```
+
+Trained models are kept in a Docker volume, so they survive rebuilds.
 
 ## Deploying to Vercel
 

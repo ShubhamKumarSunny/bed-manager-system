@@ -7,6 +7,8 @@ from datetime import datetime
 import numpy as np
 import logging
 
+from config import settings
+
 from schemas import (
     DischargeRequest,
     BedAvailabilityRequest,
@@ -97,8 +99,10 @@ async def predict_discharge(request: DischargeRequest):
             from datetime import timedelta
             
             # Connect to MongoDB
-            mongo_client = MongoClient('mongodb://localhost:27017/')
-            db = mongo_client['bedmanager']
+            # MONGO_URI comes from the environment (e.g. mongodb://mongo:27017/bedmanager
+            # under Docker); fail fast so a missing database never stalls a prediction
+            mongo_client = MongoClient(settings.MONGO_URI, serverSelectionTimeoutMS=2000)
+            db = mongo_client.get_default_database(default='bedmanager')
             
             # Get occupancy logs from last 30 days
             thirty_days_ago = datetime.utcnow() - timedelta(days=30)

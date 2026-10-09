@@ -2,3 +2,6 @@
 /docs
 /backend/scripts
 *.md
+/docker-compose.yml
+**/Dockerfile
+**/.dockerignore

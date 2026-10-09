@@ -1,0 +1,47 @@
+# Runs MongoDB, the API and the ML service together:
+#   docker compose up --build
+#   docker compose exec backend npm run seed      (load demo data, once)
+# Optional, to serve real ML predictions instead of statistical estimates:
+#   docker compose exec ml-service sh -c "python train/train_discharge.py && python train/train_bed_availability.py && python train/train_cleaning_duration.py"
+#   docker compose restart ml-service
+# Then start the frontend with:  npm run dev --prefix frontend
+# (Vite forwards /api to http://localhost:5001)
+
+services:
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
+  ml-service:
+    build: ./ml-service
+    depends_on:
+      - mongo
+    ports:
+      - "8000:8000"
+    environment:
+      # Only used by the training scripts (train/*.py), not for serving predictions
+      MONGO_URI: mongodb://mongo:27017/bedmanager
+    volumes:
+      # Trained models survive image rebuilds
+      - ml-models:/app/models
+
+  backend:
+    build: ./backend
+    depends_on:
+      - mongo
+      - ml-service
+    ports:
+      - "5001:5001"
+    environment:
+      MONGO_URI: mongodb://mongo:27017/bedmanager
+      JWT_SECRET: ${JWT_SECRET:-local-docker-secret-change-me}
+      PORT: "5001"
+      ML_SERVICE_URL: http://ml-service:8000
+    restart: on-failure
+
+volumes:
+  mongo-data:
+  ml-models:

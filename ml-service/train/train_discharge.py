@@ -126,13 +126,9 @@ def extract_occupancy_data(db):
     beds_df = pd.DataFrame(beds_data)
     
     if len(beds_df) > 0:
-        # Create bed mapping
-        bed_info = beds_df.set_index('_id')[['ward', 'bedId']].to_dict('index')
-        
-        # Map bed info to sessions
-        df['ward'] = df['bed_id'].apply(
-            lambda x: bed_info.get(x, {}).get('ward', 'General') if x in [str(k) for k in bed_info.keys()] else 'General'
-        )
+        # Map bed id (as a string, matching the session keys) to its ward
+        ward_by_bed = {str(bed_id): ward for bed_id, ward in zip(beds_df['_id'], beds_df['ward'])}
+        df['ward'] = df['bed_id'].map(ward_by_bed).fillna('General')
     else:
         df['ward'] = 'General'
     
